@@ -82,8 +82,9 @@ public:
 	// One big uniform buffer that contains all matrices
 	// Note that we need to manually allocate the data to cope for GPU-specific uniform buffer offset alignments
 	struct UboDataDynamic {
-		glm::mat4 *model = nullptr;
-	} uboDataDynamic;
+		glm::mat4 model;
+		glm::vec3 tint;
+	} *uboDataDynamic;
 
 	VkPipeline pipeline;
 	VkPipelineLayout pipelineLayout;
@@ -106,8 +107,8 @@ public:
 
 	~VulkanExample()
 	{
-		if (uboDataDynamic.model) {
-			alignedFree(uboDataDynamic.model);
+		if (uboDataDynamic) {
+			alignedFree(uboDataDynamic);
 		}
 
 		// Clean up used Vulkan resources
@@ -365,8 +366,10 @@ public:
 		// Load shaders
 		std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages;
 
-		shaderStages[0] = loadShader(getShadersPath() + "dynamicuniformbuffer/base.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
-		shaderStages[1] = loadShader(getShadersPath() + "dynamicuniformbuffer/base.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+        //shaderStages[0] = loadShader(getShadersPath() + "dynamicuniformbuffer/base.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
+        //shaderStages[1] = loadShader(getShadersPath() + "dynamicuniformbuffer/base.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+        shaderStages[0] = loadShader(getShadersPath() + "dynamicuniformbuffer/base.vert", VK_SHADER_STAGE_VERTEX_BIT);
+        shaderStages[1] = loadShader(getShadersPath() + "dynamicuniformbuffer/base.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
 
 		VkGraphicsPipelineCreateInfo pipelineCreateInfo =
 			vks::initializers::pipelineCreateInfo(
@@ -396,15 +399,15 @@ public:
 
 		// Calculate required alignment based on minimum device offset alignment
 		size_t minUboAlignment = vulkanDevice->properties.limits.minUniformBufferOffsetAlignment;
-		dynamicAlignment = sizeof(glm::mat4);
+        dynamicAlignment = sizeof(UboDataDynamic);
 		if (minUboAlignment > 0) {
 			dynamicAlignment = (dynamicAlignment + minUboAlignment - 1) & ~(minUboAlignment - 1);
 		}
 
 		size_t bufferSize = OBJECT_INSTANCES * dynamicAlignment;
 
-		uboDataDynamic.model = (glm::mat4*)alignedAlloc(bufferSize, dynamicAlignment);
-		assert(uboDataDynamic.model);
+		uboDataDynamic = (UboDataDynamic*)alignedAlloc(bufferSize, dynamicAlignment);
+		assert(uboDataDynamic);
 
 		std::cout << "minUniformBufferOffsetAlignment = " << minUboAlignment << std::endl;
 		std::cout << "dynamicAlignment = " << dynamicAlignment << std::endl;
@@ -471,7 +474,17 @@ public:
 					uint32_t index = x * dim * dim + y * dim + z;
 
 					// Aligned offset
-					glm::mat4* modelMat = (glm::mat4*)(((uint64_t)uboDataDynamic.model + (index * dynamicAlignment)));
+                    UboDataDynamic* pData = (UboDataDynamic*)((uint64_t)uboDataDynamic + (index * dynamicAlignment));
+                    glm::mat4* modelMat = &(pData->model);
+                    //glm::mat4* modelMat = (glm::mat4*)(((uint64_t)uboDataDynamic->model + (index * dynamicAlignment)));
+
+					const float COLOR_MAX = 1.0f;
+                    pData->tint.r = glm::max(pData->tint.r + COLOR_MAX / 60.0f, .0f);
+                    pData->tint.g = glm::max(pData->tint.g + COLOR_MAX / 60.0f, .0f);
+                    pData->tint.b = glm::max(pData->tint.b + COLOR_MAX / 60.0f, .0f);
+                    if ( pData->tint.r > COLOR_MAX ) { pData->tint.r = 0.0f; }
+                    if ( pData->tint.g > COLOR_MAX ) { pData->tint.g = 0.0f; }
+                    if ( pData->tint.b > COLOR_MAX ) { pData->tint.b = 0.0f; }
 
 					// Update rotations
 					rotations[index] += animationTimer * rotationSpeeds[index];
@@ -488,7 +501,7 @@ public:
 
 		animationTimer = 0.0f;
 
-		memcpy(uniformBuffers.dynamic.mapped, uboDataDynamic.model, uniformBuffers.dynamic.size);
+		memcpy(uniformBuffers.dynamic.mapped, uboDataDynamic, uniformBuffers.dynamic.size);
 		// Flush to make changes visible to the host
 		VkMappedMemoryRange memoryRange = vks::initializers::mappedMemoryRange();
 		memoryRange.memory = uniformBuffers.dynamic.memory;

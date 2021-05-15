@@ -16,6 +16,7 @@ cbuffer uboView : register(b0) { UboView uboView; };
 struct UboInstance
 {
 	float4x4 model;
+	float3   tint;
 };
 cbuffer uboInstance : register(b1) { UboInstance uboInstance; };
 
@@ -28,7 +29,7 @@ struct VSOutput
 VSOutput main(VSInput input)
 {
 	VSOutput output = (VSOutput)0;
-	output.Color = input.Color;
+	output.Color = input.Color + uboInstance.tint;
 	float4x4 modelView = mul(uboView.view, uboInstance.model);
 	float3 worldPos = mul(modelView, float4(input.Pos, 1.0)).xyz;
 	output.Pos = mul(uboView.projection, mul(modelView, float4(input.Pos.xyz, 1.0)));

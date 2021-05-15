@@ -11,7 +11,8 @@ layout (binding = 0) uniform UboView
 
 layout (binding = 1) uniform UboInstance 
 {
-	mat4 model; 
+	mat4 model;
+	vec3 tint;
 } uboInstance;
 
 layout (location = 0) out vec3 outColor;
@@ -23,7 +24,7 @@ out gl_PerVertex
 
 void main() 
 {
-	outColor = inColor;
+	outColor = inColor + uboInstance.tint;
 	mat4 modelView = uboView.view * uboInstance.model;
 	vec3 worldPos = vec3(modelView * vec4(inPos, 1.0));
 	gl_Position = uboView.projection * modelView * vec4(inPos.xyz, 1.0);
