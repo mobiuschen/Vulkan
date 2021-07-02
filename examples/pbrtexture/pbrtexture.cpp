@@ -84,6 +84,8 @@ public:
 		camera.setPosition({ 0.7f, 0.1f, 1.7f });
 
 		settings.overlay = true;
+
+		enabledInstanceExtensions.push_back(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
 	}
 
 	~VulkanExample()
