@@ -100,6 +100,7 @@
 
 #ifdef MVK_indirectdraw
 #   include "../examples/indirectdraw/indirectdraw.cpp"
+#   include "../examples/gpudriven/gpudriven.cpp"
 #endif
 
 // Does not run. Metal does not support passing matrices between shader stages.

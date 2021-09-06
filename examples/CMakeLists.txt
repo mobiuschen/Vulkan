@@ -137,6 +137,7 @@ set(EXAMPLES
 	variablerateshading
 	viewportarray
 	vulkanscene
+	gpudriven
 )
 
 buildExamples()
