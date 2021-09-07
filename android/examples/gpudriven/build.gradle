@@ -83,6 +83,18 @@ task copyTask {
        into 'assets/textures'
        include 'ground_dry_rgba.ktx'
     }
+    
+    copy {
+       from '../../../data/textures'
+       into 'assets/textures'
+       include 'particle_fire.ktx'
+    }
+    
+    copy {
+       from '../../../data/textures'
+       into 'assets/textures'
+       include 'particle_smoke.ktx'
+    }
 }
 
 preBuild.dependsOn copyTask

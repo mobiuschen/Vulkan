@@ -37,7 +37,7 @@
 #define PLANT_RADIUS 25.0f
 #endif
 
-#define USE_ARRAY_OF_TEXTURE 1
+#define USE_ARRAY_OF_TEXTURE 0
 
 #if  USE_ARRAY_OF_TEXTURE
 #define AOT_SIZE 12
@@ -265,7 +265,11 @@ public:
 	{
 		std::vector<VkDescriptorPoolSize> poolSizes = {
 			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1),
+#if USE_ARRAY_OF_TEXTURE
 			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, AOT_SIZE + 1),
+#else
+			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2),
+#endif
 		};
 
 		VkDescriptorPoolCreateInfo descriptorPoolInfo = vks::initializers::descriptorPoolCreateInfo(poolSizes, 2);

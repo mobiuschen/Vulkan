@@ -1,6 +1,6 @@
 // Copyright 2020 Google LLC
 
-#define USE_ARRAY_OF_TEXTURE 1
+#define USE_ARRAY_OF_TEXTURE 0
 
 struct VSInput
 {
