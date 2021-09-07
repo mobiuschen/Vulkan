@@ -37,11 +37,23 @@
 #define PLANT_RADIUS 25.0f
 #endif
 
+#define USE_ARRAY_OF_TEXTURE 1
+
+#if  USE_ARRAY_OF_TEXTURE
+#define AOT_SIZE 12
+#endif //  USE_ARRAY_OF_TEXTURE
+
+
 class VulkanExample : public VulkanExampleBase
 {
 public:
 	struct {
+#if USE_ARRAY_OF_TEXTURE
+		std::vector<vks::Texture2D> plants;
+		std::vector<VkDescriptorImageInfo> plantDescs;
+#else
 		vks::Texture2DArray plants;
+#endif
 		vks::Texture2D ground;
 	} textures;
 
@@ -108,7 +120,14 @@ public:
 		vkDestroyPipeline(device, pipelines.skysphere, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
+#if USE_ARRAY_OF_TEXTURE
+		for ( auto It = textures.plants.begin(); It != textures.plants.end(); It++ )
+		{
+			It->destroy();
+		}
+#else
 		textures.plants.destroy();
+#endif
 		textures.ground.destroy();
 		instanceBuffer.destroy();
 		indirectCommandsBuffer.destroy();
@@ -121,7 +140,14 @@ public:
 		// Example uses multi draw indirect if available
 		if (deviceFeatures.multiDrawIndirect) {
 			enabledFeatures.multiDrawIndirect = VK_TRUE;
+			
 		}
+
+		if ( deviceFeatures.shaderSampledImageArrayDynamicIndexing )
+		{
+			enabledFeatures.shaderSampledImageArrayDynamicIndexing = VK_TRUE;
+		}
+
 		// Enable anisotropic filtering if supported
 		if (deviceFeatures.samplerAnisotropy) {
 			enabledFeatures.samplerAnisotropy = VK_TRUE;
@@ -207,7 +233,31 @@ public:
 		models.plants.loadFromFile(getAssetPath() + "models/plants.gltf", vulkanDevice, queue, glTFLoadingFlags);
 		models.ground.loadFromFile(getAssetPath() + "models/plane_circle.gltf", vulkanDevice, queue, glTFLoadingFlags);
 		models.skysphere.loadFromFile(getAssetPath() + "models/sphere.gltf", vulkanDevice, queue, glTFLoadingFlags);
+#if USE_ARRAY_OF_TEXTURE
+        const std::vector<std::string> images = {
+            "textures/ground_dry_rgba.ktx",
+            //"textures/rocks_color_rgba.ktx",
+            "textures/particle_fire.ktx",
+            //"textures/particle_gradient_rgba.ktx",
+            //"textures/particle_smoke.ktx",
+            //"textures/rocks_color_rgba.ktx",
+            //"textures/stonefloor01_color_rgba.ktx",
+            //"textures/ground_dry_rgba.ktx",
+            //"textures/particle_fire.ktx",
+            //"textures/particle_gradient_rgba.ktx",
+            "textures/particle_smoke.ktx",
+            //"textures/rocks_color_rgba.ktx",
+		};
+		for ( size_t i = 0; i < AOT_SIZE; i++ )
+		{
+			vks::Texture2D tex2d;
+			tex2d.loadFromFile(getAssetPath() + images[i % images.size()], VK_FORMAT_R8G8B8A8_UNORM, vulkanDevice, queue);
+			textures.plants.push_back(tex2d);
+			textures.plantDescs.push_back(tex2d.descriptor);
+		}
+#else
 		textures.plants.loadFromFile(getAssetPath() + "textures/texturearray_plants_rgba.ktx", VK_FORMAT_R8G8B8A8_UNORM, vulkanDevice, queue);
+#endif
 		textures.ground.loadFromFile(getAssetPath() + "textures/ground_dry_rgba.ktx", VK_FORMAT_R8G8B8A8_UNORM, vulkanDevice, queue);
 	}
 
@@ -215,7 +265,7 @@ public:
 	{
 		std::vector<VkDescriptorPoolSize> poolSizes = {
 			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1),
-			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2),
+			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, AOT_SIZE + 1),
 		};
 
 		VkDescriptorPoolCreateInfo descriptorPoolInfo = vks::initializers::descriptorPoolCreateInfo(poolSizes, 2);
@@ -228,7 +278,11 @@ public:
 			// Binding 0: Vertex shader uniform buffer
 			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0),
 			// Binding 1: Fragment shader combined sampler (plants texture array)
+#if USE_ARRAY_OF_TEXTURE
+			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1, AOT_SIZE),
+#else
 			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1),
+#endif
 			// Binding 1: Fragment shader combined sampler (ground texture)
 			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2),
 		};
@@ -242,14 +296,18 @@ public:
 
 	void setupDescriptorSet()
 	{
-		VkDescriptorSetAllocateInfo allocInfo =vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayout, 1);
+		VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayout, 1);
 		VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet));
 
 		std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
 			// Binding 0: Vertex shader uniform buffer
 			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &uniformData.scene.descriptor),
 			// Binding 1: Plants texture array combined
+#if USE_ARRAY_OF_TEXTURE
+			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, textures.plantDescs.data(), AOT_SIZE),
+#else
 			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, &textures.plants.descriptor),
+#endif
 			// Binding 2: Ground texture combined
 			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2, &textures.ground.descriptor)
 		};
@@ -501,11 +559,26 @@ public:
 
 	virtual void OnUpdateUIOverlay(vks::UIOverlay *overlay)
 	{
-		if (!vulkanDevice->features.multiDrawIndirect) {
-			if (overlay->header("Info")) {
-				overlay->text("multiDrawIndirect not supported");
+        if ( overlay->header("Info") )
+        {
+            if ( vulkanDevice->features.shaderSampledImageArrayDynamicIndexing )
+            {
+				overlay->text("shaderSampledImageArrayDynamicIndexing is supported");
+            }
+			else
+			{
+				overlay->text("shaderSampledImageArrayDynamicIndexing NOT supported");
 			}
-		}
+
+			if ( vulkanDevice->features.multiDrawIndirect )
+			{
+				overlay->text("multiDrawIndirect is supported");
+			}
+			else
+            {
+                overlay->text("multiDrawIndirect NOT supported");
+			}
+        }
 		if (overlay->header("Statistics")) {
 			overlay->text("Objects: %d", objectCount);
 		}

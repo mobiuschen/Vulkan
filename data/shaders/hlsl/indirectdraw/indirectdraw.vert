@@ -1,5 +1,7 @@
 // Copyright 2020 Google LLC
 
+#define USE_ARRAY_OF_TEXTURE 1
+
 struct VSInput
 {
 [[vk::location(0)]] float4 Pos : POSITION0;
@@ -25,16 +27,29 @@ struct VSOutput
 	float4 Pos : SV_POSITION;
 [[vk::location(0)]] float3 Normal : NORMAL0;
 [[vk::location(1)]] float3 Color : COLOR0;
+
+#if USE_ARRAY_OF_TEXTURE
+[[vk::location(2)]] float2 UV : TEXCOORD0;
+#else
 [[vk::location(2)]] float3 UV : TEXCOORD0;
+#endif
 [[vk::location(3)]] float3 ViewVec : TEXCOORD1;
 [[vk::location(4)]] float3 LightVec : TEXCOORD2;
+#if USE_ARRAY_OF_TEXTURE
+[[vk::location(5)]] int instanceTexIndex : TEXCOORD3;
+#endif
 };
 
 VSOutput main(VSInput input)
 {
 	VSOutput output = (VSOutput)0;
 	output.Color = input.Color;
+#if USE_ARRAY_OF_TEXTURE
+	output.UV = input.UV;
+	output.instanceTexIndex = input.instanceTexIndex;
+#else
 	output.UV = float3(input.UV, input.instanceTexIndex);
+#endif
 
 	float4x4 mx, my, mz;
 

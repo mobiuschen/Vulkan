@@ -1,5 +1,7 @@
 #version 450
 
+#define USE_ARRAY_OF_TEXTURE 1
+
 // Vertex attributes
 layout (location = 0) in vec3 inPos;
 layout (location = 1) in vec3 inNormal;
@@ -20,14 +22,27 @@ layout (binding = 0) uniform UBO
 
 layout (location = 0) out vec3 outNormal;
 layout (location = 1) out vec3 outColor;
+#if USE_ARRAY_OF_TEXTURE
+layout (location = 2) out vec2 outUV;
+#else
 layout (location = 2) out vec3 outUV;
+#endif
 layout (location = 3) out vec3 outViewVec;
 layout (location = 4) out vec3 outLightVec;
+#if USE_ARRAY_OF_TEXTURE
+layout (location = 5) in int outInstanceTexIndex;
+#endif
 
 void main() 
 {
 	outColor = inColor;
+#if USE_ARRAY_OF_TEXTURE
+	outUV = inUV
+	outInstanceTexIndex = instanceTexIndex;
+#else
 	outUV = vec3(inUV, instanceTexIndex);
+#endif
+	
 
 	mat4 mx, my, mz;
 	
