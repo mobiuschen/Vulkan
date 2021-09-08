@@ -1,6 +1,6 @@
 // Copyright 2020 Google LLC
 
-#define USE_ARRAY_OF_TEXTURE 0
+#define USE_ARRAY_OF_TEXTURE 1
 
 #if USE_ARRAY_OF_TEXTURE
 Texture2D textureArray[12] : register(t1);

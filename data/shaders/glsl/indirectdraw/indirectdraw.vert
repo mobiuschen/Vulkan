@@ -30,14 +30,14 @@ layout (location = 2) out vec3 outUV;
 layout (location = 3) out vec3 outViewVec;
 layout (location = 4) out vec3 outLightVec;
 #if USE_ARRAY_OF_TEXTURE
-layout (location = 5) in int outInstanceTexIndex;
+layout (location = 5) out int outInstanceTexIndex;
 #endif
 
 void main() 
 {
 	outColor = inColor;
 #if USE_ARRAY_OF_TEXTURE
-	outUV = inUV
+	outUV = inUV;
 	outInstanceTexIndex = instanceTexIndex;
 #else
 	outUV = vec3(inUV, instanceTexIndex);

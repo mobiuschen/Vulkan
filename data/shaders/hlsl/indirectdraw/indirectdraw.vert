@@ -1,6 +1,6 @@
 // Copyright 2020 Google LLC
 
-#define USE_ARRAY_OF_TEXTURE 0
+#define USE_ARRAY_OF_TEXTURE 1
 
 struct VSInput
 {
@@ -27,7 +27,6 @@ struct VSOutput
 	float4 Pos : SV_POSITION;
 [[vk::location(0)]] float3 Normal : NORMAL0;
 [[vk::location(1)]] float3 Color : COLOR0;
-
 #if USE_ARRAY_OF_TEXTURE
 [[vk::location(2)]] float2 UV : TEXCOORD0;
 #else

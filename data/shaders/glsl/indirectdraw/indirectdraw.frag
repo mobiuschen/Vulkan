@@ -19,7 +19,7 @@ layout (location = 2) in vec3 inUV;
 layout (location = 3) in vec3 inViewVec;
 layout (location = 4) in vec3 inLightVec;
 #if USE_ARRAY_OF_TEXTURE
-layout (location = 5) in int instanceTexIndex;
+layout (location = 5) flat in int inInstanceTexIndex;
 #endif
 
 layout (location = 0) out vec4 outFragColor;
@@ -27,7 +27,7 @@ layout (location = 0) out vec4 outFragColor;
 void main()
 {
 #if USE_ARRAY_OF_TEXTURE
-	vec4 color = texture(samplerArray[instanceTexIndex], inUV);
+	vec4 color = texture(samplerArray[inInstanceTexIndex], inUV);
 #else
 	vec4 color = texture(samplerArray, inUV);
 #endif

@@ -37,7 +37,7 @@
 #define PLANT_RADIUS 25.0f
 #endif
 
-#define USE_ARRAY_OF_TEXTURE 0
+#define USE_ARRAY_OF_TEXTURE 1
 
 #if  USE_ARRAY_OF_TEXTURE
 #define AOT_SIZE 12
