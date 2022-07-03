@@ -27,15 +27,27 @@
 #define ENABLE_VALIDATION false
 
 // Number of instances per object
-#if defined(__ANDROID__)
-#define OBJECT_INSTANCE_COUNT 1024
+//#if defined(__ANDROID__)
+//#define OBJECT_INSTANCE_COUNT 1024
+//// Circular range of plant distribution
+//#define PLANT_RADIUS 2.0f
+//#define PRIMITIVE_COUNT 256
+//#else
+//#define OBJECT_INSTANCE_COUNT 2048
+//#define PRIMITIVE_COUNT 256
+//// Circular range of plant distribution
+//#define PLANT_RADIUS 2.0f
+//#endif
+
 // Circular range of plant distribution
-#define PLANT_RADIUS 20.0f
-#else
-#define OBJECT_INSTANCE_COUNT 2048
-// Circular range of plant distribution
-#define PLANT_RADIUS 25.0f
-#endif
+#define PLANT_RADIUS 2.0f
+
+static const uint32_t INSTANCE_PER_PRIM_PER_MESH = 5;
+static const uint32_t PRIMITIVE_COUNT = 5;
+static const uint32_t PRIMITIVE_COUNT_BORDER = 3;
+static const uint32_t OBJECT_INSTANCE_COUNT = INSTANCE_PER_PRIM_PER_MESH * PRIMITIVE_COUNT;
+static const float PRIM_GAP = 10.0f;
+static const float CULL_DISTANCE = 100.0f;
 
 class VulkanExample : public VulkanExampleBase
 {
@@ -57,6 +69,7 @@ public:
 		glm::vec3 rot;
 		float scale;
 		uint32_t texIndex;
+		uint32_t primIndex;
 	};
 
 	// Contains the instanced data
@@ -64,14 +77,21 @@ public:
 	// Contains the indirect drawing commands
 	vks::Buffer indirectCommandsBuffer;
 	uint32_t indirectDrawCount;
+	uint32_t plantTypeCount;
 
 	struct {
 		glm::mat4 projection;
 		glm::mat4 view;
 	} uboVS;
 
+	struct PrimitiveData {
+		glm::mat4 transform;
+		float cullDistance;
+	};
+
 	struct {
 		vks::Buffer scene;
+		vks::Buffer primitives;
 	} uniformData;
 
 	struct {
@@ -113,6 +133,7 @@ public:
 		instanceBuffer.destroy();
 		indirectCommandsBuffer.destroy();
 		uniformData.scene.destroy();
+		uniformData.primitives.destroy();
 	}
 
 	// Enable physical device features required for this example
@@ -216,6 +237,7 @@ public:
 		std::vector<VkDescriptorPoolSize> poolSizes = {
 			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1),
 			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2),
+			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1),
 		};
 
 		VkDescriptorPoolCreateInfo descriptorPoolInfo = vks::initializers::descriptorPoolCreateInfo(poolSizes, 2);
@@ -228,9 +250,11 @@ public:
 			// Binding 0: Vertex shader uniform buffer
 			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0),
 			// Binding 1: Fragment shader combined sampler (plants texture array)
-			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1),
-			// Binding 1: Fragment shader combined sampler (ground texture)
-			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2),
+            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1),
+            // Binding 2: Fragment shader combined sampler (ground texture)
+            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2),
+			// Binding 3: vertex shader uniform buffer primitive data
+			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 3),
 		};
 
 		VkDescriptorSetLayoutCreateInfo descriptorLayout = vks::initializers::descriptorSetLayoutCreateInfo(setLayoutBindings);
@@ -251,7 +275,9 @@ public:
 			// Binding 1: Plants texture array combined
 			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, &textures.plants.descriptor),
 			// Binding 2: Ground texture combined
-			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2, &textures.ground.descriptor)
+			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2, &textures.ground.descriptor),
+			// Binding 3: Primitive Data uniform buffer
+			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3, &uniformData.primitives.descriptor)
 		};
 		vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 	}
@@ -369,10 +395,12 @@ public:
 			}
 		}
 
+		plantTypeCount = m;
+
 		indirectDrawCount = static_cast<uint32_t>(indirectCommands.size());
 
 		objectCount = 0;
-		for (auto indirectCmd : indirectCommands)
+		for (auto& indirectCmd : indirectCommands)
 		{
 			objectCount += indirectCmd.instanceCount;
 		}
@@ -396,44 +424,122 @@ public:
 		stagingBuffer.destroy();
 	}
 
-	// Prepare (and stage) a buffer containing instanced data for the mesh draws
-	void prepareInstanceData()
-	{
-		std::vector<InstanceData> instanceData;
-		instanceData.resize(objectCount);
+	void preparePrimitiveData()
+    {
+		// setup primitive data
+        std::vector<PrimitiveData> primitives;
+		primitives.resize(PRIMITIVE_COUNT);
 
-		std::default_random_engine rndEngine(benchmark.active ? 0 : (unsigned)time(nullptr));
-		std::uniform_real_distribution<float> uniformDist(0.0f, 1.0f);
+        // setup instance data
+        std::vector<InstanceData> instanceData;
+        instanceData.resize(objectCount);
 
-		for (uint32_t i = 0; i < objectCount; i++) {
-			float theta = 2 * float(M_PI) * uniformDist(rndEngine);
-			float phi = acos(1 - 2 * uniformDist(rndEngine));
-			instanceData[i].rot = glm::vec3(0.0f, float(M_PI) * uniformDist(rndEngine), 0.0f);
-			instanceData[i].pos = glm::vec3(sin(phi) * cos(theta), 0.0f, cos(phi)) * PLANT_RADIUS;
-			instanceData[i].scale = 1.0f + uniformDist(rndEngine) * 2.0f;
-			instanceData[i].texIndex = i / OBJECT_INSTANCE_COUNT;
+		uint32_t totalInstance = 0;
+		for ( uint32_t primIdx = 0; primIdx < PRIMITIVE_COUNT; primIdx++ )
+		{
+			primitives[primIdx].cullDistance = CULL_DISTANCE;
+			primitives[primIdx].transform = 
+				glm::translate(glm::mat4(1.0f), 
+							   glm::vec3((float)(primIdx % PRIMITIVE_COUNT_BORDER) * PRIM_GAP, 0.0f, (float)(primIdx / PRIMITIVE_COUNT_BORDER) * PRIM_GAP));
+
+            std::default_random_engine rndEngine(benchmark.active ? 0 : (unsigned)time(nullptr));
+            std::uniform_real_distribution<float> uniformDist(0.0f, 1.0f);
+
+			for ( uint32_t plantIdx = 0; plantIdx < plantTypeCount; plantIdx++ )
+            {
+                for ( uint32_t ins = 0; ins < INSTANCE_PER_PRIM_PER_MESH; ins++ )
+                {
+                    const uint32_t insIndex = primIdx * plantIdx * INSTANCE_PER_PRIM_PER_MESH + ins;
+                    float theta = 2 * float(M_PI) * uniformDist(rndEngine);
+                    float phi = acos(1 - 2 * uniformDist(rndEngine));
+                    instanceData[insIndex].rot = glm::vec3(0.0f, float(M_PI) * uniformDist(rndEngine), 0.0f);
+                    instanceData[insIndex].pos = glm::vec3(sin(phi) * cos(theta), 0.0f, cos(phi)) * PLANT_RADIUS;
+                    instanceData[insIndex].scale = 1.0f + uniformDist(rndEngine) * 2.0f;
+                    instanceData[insIndex].texIndex = plantIdx;
+                    instanceData[insIndex].primIndex = primIdx;
+					totalInstance++;
+                }
+			}
 		}
+
+		assert(totalInstance == objectCount);
 
 		vks::Buffer stagingBuffer;
 		VK_CHECK_RESULT(vulkanDevice->createBuffer(
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			&stagingBuffer,
-			instanceData.size() * sizeof(InstanceData),
-			instanceData.data()));
+			primitives.size() * sizeof(PrimitiveData),
+			primitives.data()
+		));
 
 		VK_CHECK_RESULT(vulkanDevice->createBuffer(
-			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			&instanceBuffer,
-			stagingBuffer.size));
+			&uniformData.primitives,
+			stagingBuffer.size
+		));
 
-		vulkanDevice->copyBuffer(&stagingBuffer, &instanceBuffer, queue);
-
+		vulkanDevice->copyBuffer(&stagingBuffer, &uniformData.primitives, queue);
 		stagingBuffer.destroy();
+
+        // setup instance data
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &stagingBuffer,
+            instanceData.size() * sizeof(InstanceData),
+            instanceData.data()));
+
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            &instanceBuffer,
+            stagingBuffer.size));
+
+        vulkanDevice->copyBuffer(&stagingBuffer, &instanceBuffer, queue);
+
+        stagingBuffer.destroy();
 	}
 
-	void prepareUniformBuffers()
+	//// Prepare (and stage) a buffer containing instanced data for the mesh draws
+	//void prepareInstanceData()
+	//{
+	//	std::vector<InstanceData> instanceData;
+	//	instanceData.resize(objectCount);
+
+	//	std::default_random_engine rndEngine(benchmark.active ? 0 : (unsigned)time(nullptr));
+	//	std::uniform_real_distribution<float> uniformDist(0.0f, 1.0f);
+
+	//	for (uint32_t i = 0; i < objectCount; i++) {
+	//		float theta = 2 * float(M_PI) * uniformDist(rndEngine);
+	//		float phi = acos(1 - 2 * uniformDist(rndEngine));
+	//		instanceData[i].rot = glm::vec3(0.0f, float(M_PI) * uniformDist(rndEngine), 0.0f);
+	//		instanceData[i].pos = glm::vec3(sin(phi) * cos(theta), 0.0f, cos(phi)) * PLANT_RADIUS;
+	//		instanceData[i].scale = 1.0f + uniformDist(rndEngine) * 2.0f;
+	//		instanceData[i].texIndex = i / OBJECT_INSTANCE_COUNT;
+	//	}
+
+	//	vks::Buffer stagingBuffer;
+	//	VK_CHECK_RESULT(vulkanDevice->createBuffer(
+	//		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+	//		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+	//		&stagingBuffer,
+	//		instanceData.size() * sizeof(InstanceData),
+	//		instanceData.data()));
+
+	//	VK_CHECK_RESULT(vulkanDevice->createBuffer(
+	//		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+	//		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+	//		&instanceBuffer,
+	//		stagingBuffer.size));
+
+	//	vulkanDevice->copyBuffer(&stagingBuffer, &instanceBuffer, queue);
+
+	//	stagingBuffer.destroy();
+	//}
+
+	void prepareSceneData()
 	{
 		VK_CHECK_RESULT(vulkanDevice->createBuffer(
 			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -443,10 +549,10 @@ public:
 
 		VK_CHECK_RESULT(uniformData.scene.map());
 
-		updateUniformBuffer(true);
+		updateSceneData(true);
 	}
 
-	void updateUniformBuffer(bool viewChanged)
+	void updateSceneData(bool viewChanged)
 	{
 		if (viewChanged)
 		{
@@ -476,8 +582,9 @@ public:
 		VulkanExampleBase::prepare();
 		loadAssets();
 		prepareIndirectData();
-		prepareInstanceData();
-		prepareUniformBuffers();
+		preparePrimitiveData();
+		//prepareInstanceData();
+		prepareSceneData();
 		setupDescriptorSetLayout();
 		preparePipelines();
 		setupDescriptorPool();
@@ -495,7 +602,7 @@ public:
 		draw();
 		if (camera.updated)
 		{
-			updateUniformBuffer(true);
+			updateSceneData(true);
 		}
 	}
 
