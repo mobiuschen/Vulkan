@@ -472,7 +472,7 @@ public:
                     float theta = 2 * float(M_PI) * uniformDist(rndEngine);
                     float phi = acos(1 - 2 * uniformDist(rndEngine));
 
-					const float scale = 2.0;
+					const float scale = 2.0f;
                     glm::mat4 insTransform = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 0, 0));
 					insTransform = glm::rotate(insTransform, glm::radians(0.0f), { 0.0f, 1.0f, 0.0f });
 					insTransform = glm::scale(insTransform, { scale, scale, scale });

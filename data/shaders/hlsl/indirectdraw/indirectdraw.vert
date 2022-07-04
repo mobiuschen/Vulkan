@@ -49,14 +49,15 @@ VSOutput main(VSInput input)
 	output.UV = float3(input.UV, input.instanceTexIndex);
 
 	float4x4 instanceMat;				  
-	instanceMat[0] = input.instanceMat0;
-	instanceMat[1] = input.instanceMat1;
-	instanceMat[2] = input.instanceMat2;
-	instanceMat[3] = input.instanceMat3;
-
-	output.Normal = mul((float4x3)instanceMat, input.Normal).xyz;																		   
+	instanceMat[0] = float4(input.instanceMat0.x, input.instanceMat1.x, input.instanceMat2.x, input.instanceMat3.x);
+	instanceMat[1] = float4(input.instanceMat0.y, input.instanceMat1.y, input.instanceMat2.y, input.instanceMat3.y);
+	instanceMat[2] = float4(input.instanceMat0.z, input.instanceMat1.z, input.instanceMat2.z, input.instanceMat3.z);
+	instanceMat[3] = float4(input.instanceMat0.w, input.instanceMat1.w, input.instanceMat2.w, input.instanceMat3.w);
+																		   
 	float4x4 primMat = primitiveData[input.primitiveIndex].transform;
 	float4x4 ins2PrimMat = mul(primMat, instanceMat);
+
+	output.Normal = mul((float4x3)instanceMat, input.Normal).xyz;	
 	// float4 pos = mul(rotMat, float4((input.Pos.xyz * input.instanceScale) + input.instancePos, 1.0));
 	float4 pos = mul(ins2PrimMat, float4(input.Pos.xyz, 1.0));
 	output.Pos = mul(ubo.projection, mul(ubo.modelview, pos));
