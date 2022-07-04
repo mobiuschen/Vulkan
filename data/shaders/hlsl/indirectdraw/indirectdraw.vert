@@ -11,7 +11,7 @@ struct VSInput
 [[vk::location(5)]] float4 instanceMatRow1 : TEXCOORD2;
 [[vk::location(6)]] float4 instanceMatRow2 : TEXCOORD3;
 [[vk::location(7)]] float4 instanceMatRow3 : TEXCOORD4;
-[[vk::location(8)]] int instanceTexIndex : TEXCOORD5;
+[[vk::location(8)]] int instanceMaterialIndex : TEXCOORD5;
 [[vk::location(9)]] int primitiveIndex : TEXCOORD6;
 };
 
@@ -21,14 +21,15 @@ struct UBO
 	float4x4 modelview;
 };
 
-cbuffer ubo : register(b0) { UBO ubo; }
-
 struct PrimitiveData
 {
     float4x4 transform;
     float3 pos;
     float cullDistance;
 };
+
+cbuffer ubo : register(b0) { UBO ubo; }
+
 
 StructuredBuffer<PrimitiveData> primitiveData : register(t3);
 
@@ -37,16 +38,17 @@ struct VSOutput
 	float4 Pos : SV_POSITION;
 [[vk::location(0)]] float3 Normal : NORMAL0;
 [[vk::location(1)]] float3 Color : COLOR0;
-[[vk::location(2)]] float3 UV : TEXCOORD0;
+[[vk::location(2)]] float2 UV : TEXCOORD0;
 [[vk::location(3)]] float3 ViewVec : TEXCOORD1;
 [[vk::location(4)]] float3 LightVec : TEXCOORD2;
+[[vk::location(5)]] int MaterialIndex: TEXCOORD3;
 };
 
 VSOutput main(VSInput input)
 {
 	VSOutput output = (VSOutput)0;
 	output.Color = input.Color;
-	output.UV = float3(input.UV, input.instanceTexIndex);
+	output.UV = input.UV;
 
 	float4x4 instanceMat;				  																			
 	instanceMat[0] = input.instanceMatRow0;
@@ -66,5 +68,6 @@ VSOutput main(VSInput input)
 	float4 lPos = float4(0.0, -5.0, 0.0, 1.0);
 	output.LightVec = lPos.xyz - pos.xyz;
 	output.ViewVec = -pos.xyz;
+	output.MaterialIndex = input.instanceMaterialIndex;
 	return output;
 }

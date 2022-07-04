@@ -44,9 +44,9 @@
 
 static const uint32_t INSTANCE_PER_PRIM_PER_MESH = 32;
 static const uint32_t PRIMITIVE_COUNT = 32;
-static const uint32_t PRIMITIVE_COUNT_BORDER = 10;
+static const uint32_t PRIMITIVE_COUNT_BORDER = 4;
 static const uint32_t OBJECT_INSTANCE_COUNT = INSTANCE_PER_PRIM_PER_MESH * PRIMITIVE_COUNT;
-static const float PRIM_GAP = 2.0f;
+static const float PRIM_GAP = 5.0f;
 static const float CULL_DISTANCE = 100.0f;
 
 enum EAttrLocation : uint32_t
@@ -61,6 +61,15 @@ enum EAttrLocation : uint32_t
 	instanceTransformRow3,
 	instanceTexIndex,
 	primitiveIndex
+};
+
+enum ERegister: uint32_t
+{
+	Scene,
+	PlantTextureArray,
+	Texture,
+	Primitives,
+	Materials
 };
 
 class VulkanExample : public VulkanExampleBase
@@ -87,6 +96,11 @@ public:
 		uint32_t primIndex;
 	};
 
+	struct Material {
+		glm::vec4 tint;
+		uint32_t textureIndex;
+	};
+
 	// Contains the instanced data
 	vks::Buffer instanceBuffer;
 	// Contains the indirect drawing commands
@@ -108,6 +122,7 @@ public:
 	struct {
 		vks::Buffer scene;
 		vks::Buffer primitives;
+		vks::Buffer materials;
 	} uniformData;
 
 	struct {
@@ -126,6 +141,8 @@ public:
 
 	// Store the indirect draw commands containing index offsets and instance count per object
 	std::vector<VkDrawIndexedIndirectCommand> indirectCommands;
+
+	std::vector<Material> materials;
 
 	VulkanExample() : VulkanExampleBase(ENABLE_VALIDATION)
 	{
@@ -150,6 +167,7 @@ public:
 		indirectCommandsBuffer.destroy();
 		uniformData.scene.destroy();
 		uniformData.primitives.destroy();
+		uniformData.materials.destroy();
 	}
 
 	// Enable physical device features required for this example
@@ -264,13 +282,15 @@ public:
 	{
 		std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings = {
 			// Binding 0: Vertex shader uniform buffer
-			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0),
+			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, ERegister::Scene),
 			// Binding 1: Fragment shader combined sampler (plants texture array)
-            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1),
+            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, ERegister::PlantTextureArray),
             // Binding 2: Fragment shader combined sampler (ground texture)
-            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2),
-			// Binding 3: vertex shader uniform buffer primitive data
-			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 3),
+            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, ERegister::Texture),
+            // Binding 3: vertex shader uniform buffer primitive data
+            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, ERegister::Primitives),
+			// Binding 4
+            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, ERegister::Materials),
 		};
 
 		VkDescriptorSetLayoutCreateInfo descriptorLayout = vks::initializers::descriptorSetLayoutCreateInfo(setLayoutBindings);
@@ -287,13 +307,15 @@ public:
 
 		std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
 			// Binding 0: Vertex shader uniform buffer
-			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &uniformData.scene.descriptor),
+			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, ERegister::Scene, &uniformData.scene.descriptor),
 			// Binding 1: Plants texture array combined
-			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, &textures.plants.descriptor),
+			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, ERegister::PlantTextureArray, &textures.plants.descriptor),
 			// Binding 2: Ground texture combined
-			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2, &textures.ground.descriptor),
+			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, ERegister::Texture, &textures.ground.descriptor),
 			// Binding 3: Primitive Data uniform buffer
-			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3, &uniformData.primitives.descriptor)
+			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ERegister::Primitives, &uniformData.primitives.descriptor),
+			// Binding 4
+			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ERegister::Materials, &uniformData.materials.descriptor)
 		};
 		vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 	}
@@ -442,6 +464,37 @@ public:
 		stagingBuffer.destroy();
 	}
 
+	void prepareMaterials()
+	{
+		std::vector<Material> materials;
+		for ( uint32_t i = 0; i < textures.plants.layerCount; i++ )
+        {
+            Material mat;
+            mat.tint = glm::vec4(1.0, 1.0, 1.0, 1.0);
+            mat.textureIndex = i;
+            materials.push_back(mat);
+        }
+
+        vks::Buffer stagingBuffer;
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &stagingBuffer,
+			materials.size() * sizeof(Material),
+			materials.data()
+        ));
+
+		VK_CHECK_RESULT(vulkanDevice->createBuffer(
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			&uniformData.materials,
+			stagingBuffer.size
+		));
+		
+		vulkanDevice->copyBuffer(&stagingBuffer, &uniformData.materials, queue);
+		stagingBuffer.destroy();
+	}
+
 	void preparePrimitiveData()
     {
 		// setup primitive data
@@ -473,7 +526,8 @@ public:
                     float phi = acos(1 - 2 * uniformDist(rndEngine));
 
 					const float scale = 2.0f;
-                    glm::mat4 insTransform = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, plantIdx));
+					const glm::vec3 pos = glm::vec3(sin(phi) * cos(theta), 0.0f, cos(phi)) * PLANT_RADIUS;
+                    glm::mat4 insTransform = glm::translate(glm::mat4(1.0f), pos);
 					insTransform = glm::rotate(insTransform, glm::radians(0.0f), { 0.0f, 1.0f, 0.0f });
 					insTransform = glm::scale(insTransform, { scale, scale, scale });
 					instanceData[insIndex].transRow0 = { insTransform[0][0], insTransform[1][0], insTransform[2][0], insTransform[3][0] };
@@ -606,6 +660,7 @@ public:
 	{
 		VulkanExampleBase::prepare();
 		loadAssets();
+		prepareMaterials();
 		prepareIndirectData();
 		preparePrimitiveData();
 		//prepareInstanceData();
