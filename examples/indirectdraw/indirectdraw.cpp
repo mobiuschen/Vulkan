@@ -42,12 +42,26 @@
 // Circular range of plant distribution
 #define PLANT_RADIUS 2.0f
 
-static const uint32_t INSTANCE_PER_PRIM_PER_MESH = 5;
-static const uint32_t PRIMITIVE_COUNT = 5;
-static const uint32_t PRIMITIVE_COUNT_BORDER = 3;
+static const uint32_t INSTANCE_PER_PRIM_PER_MESH = 32;
+static const uint32_t PRIMITIVE_COUNT = 32;
+static const uint32_t PRIMITIVE_COUNT_BORDER = 10;
 static const uint32_t OBJECT_INSTANCE_COUNT = INSTANCE_PER_PRIM_PER_MESH * PRIMITIVE_COUNT;
-static const float PRIM_GAP = 10.0f;
+static const float PRIM_GAP = 2.0f;
 static const float CULL_DISTANCE = 100.0f;
+
+enum EAttrLocation : uint32_t
+{
+	Pos,
+	Normal,
+	UV,
+	Color,
+	instanceTransformM0,
+	instanceTransformM1,
+	instanceTransformM2,
+	instanceTransformM3,
+	instanceTexIndex,
+	primitiveIndex
+};
 
 class VulkanExample : public VulkanExampleBase
 {
@@ -65,9 +79,10 @@ public:
 
 	// Per-instance data block
 	struct InstanceData {
-		glm::vec3 pos;
-		glm::vec3 rot;
-		float scale;
+		glm::vec4 mat0;
+		glm::vec4 mat1;
+		glm::vec4 mat2;
+		glm::vec4 mat3;
 		uint32_t texIndex;
 		uint32_t primIndex;
 	};
@@ -86,6 +101,7 @@ public:
 
 	struct PrimitiveData {
 		glm::mat4 transform;
+		glm::vec3 pos;
 		float cullDistance;
 	};
 
@@ -329,16 +345,18 @@ public:
 		attributeDescriptions = {
 		    // Per-vertex attributes
 		    // These are advanced for each vertex fetched by the vertex shader
-		    vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID, 0, VK_FORMAT_R32G32B32_SFLOAT, 0),								// Location 0: Position
-		    vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 3),				// Location 1: Normal
-		    vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID, 2, VK_FORMAT_R32G32_SFLOAT, sizeof(float) * 6),					// Location 2: Texture coordinates
-		    vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID, 3, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 8),				// Location 3: Color
-		    // Per-Instance attributes
-		    // These are fetched for each instance rendered
-		    vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, 4, VK_FORMAT_R32G32B32_SFLOAT, offsetof(InstanceData, pos)),	// Location 4: Position
-		    vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, 5, VK_FORMAT_R32G32B32_SFLOAT, offsetof(InstanceData, rot)),	// Location 5: Rotation
-		    vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, 6, VK_FORMAT_R32_SFLOAT, offsetof(InstanceData, scale)),		// Location 6: Scale
-		    vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, 7, VK_FORMAT_R32_SINT, offsetof(InstanceData, texIndex)),		// Location 7: Texture array layer index
+            vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID,   EAttrLocation::Pos, VK_FORMAT_R32G32B32_SFLOAT, 0),								// Location 0: Position
+            vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID,   EAttrLocation::Normal, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 3),				// Location 1: Normal
+            vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID,   EAttrLocation::UV, VK_FORMAT_R32G32_SFLOAT, sizeof(float) * 6),					// Location 2: Texture coordinates
+            vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID,   EAttrLocation::Color, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 8),				// Location 3: Color
+            // Per-Instance attributes
+            // These are fetched for each instance rendered
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformM0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, mat0)),
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformM1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, mat1)),
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformM2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, mat2)),
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformM3, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, mat3)),
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTexIndex, VK_FORMAT_R32_SINT, offsetof(InstanceData, texIndex)),		// Location 7: Texture array layer index
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::primitiveIndex, VK_FORMAT_R32_SINT, offsetof(InstanceData, primIndex)),		// Location 8: Primitive index
 		};
 		inputState.pVertexBindingDescriptions = bindingDescriptions.data();
 		inputState.pVertexAttributeDescriptions = attributeDescriptions.data();
@@ -437,10 +455,11 @@ public:
 		uint32_t totalInstance = 0;
 		for ( uint32_t primIdx = 0; primIdx < PRIMITIVE_COUNT; primIdx++ )
 		{
-			primitives[primIdx].cullDistance = CULL_DISTANCE;
-			primitives[primIdx].transform = 
-				glm::translate(glm::mat4(1.0f), 
-							   glm::vec3((float)(primIdx % PRIMITIVE_COUNT_BORDER) * PRIM_GAP, 0.0f, (float)(primIdx / PRIMITIVE_COUNT_BORDER) * PRIM_GAP));
+            primitives[primIdx].cullDistance = CULL_DISTANCE;
+            primitives[primIdx].transform = 
+            	glm::translate(glm::mat4(1.0f), 
+            				   glm::vec3((float)(primIdx % PRIMITIVE_COUNT_BORDER) * PRIM_GAP, 0.0f, (float)(primIdx / PRIMITIVE_COUNT_BORDER) * PRIM_GAP));
+            primitives[primIdx].pos = glm::vec3(primIdx*2, 0, 0);
 
             std::default_random_engine rndEngine(benchmark.active ? 0 : (unsigned)time(nullptr));
             std::uniform_real_distribution<float> uniformDist(0.0f, 1.0f);
@@ -452,9 +471,15 @@ public:
                     const uint32_t insIndex = primIdx * plantIdx * INSTANCE_PER_PRIM_PER_MESH + ins;
                     float theta = 2 * float(M_PI) * uniformDist(rndEngine);
                     float phi = acos(1 - 2 * uniformDist(rndEngine));
-                    instanceData[insIndex].rot = glm::vec3(0.0f, float(M_PI) * uniformDist(rndEngine), 0.0f);
-                    instanceData[insIndex].pos = glm::vec3(sin(phi) * cos(theta), 0.0f, cos(phi)) * PLANT_RADIUS;
-                    instanceData[insIndex].scale = 1.0f + uniformDist(rndEngine) * 2.0f;
+
+					const float scale = 2.0;
+                    glm::mat4 insTransform = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 0, 0));
+					insTransform = glm::rotate(insTransform, glm::radians(0.0f), { 0.0f, 1.0f, 0.0f });
+					insTransform = glm::scale(insTransform, { scale, scale, scale });
+                    instanceData[insIndex].mat0 = insTransform[0];
+                    instanceData[insIndex].mat1 = insTransform[1];
+                    instanceData[insIndex].mat2 = insTransform[2];
+                    instanceData[insIndex].mat3 = insTransform[3];
                     instanceData[insIndex].texIndex = plantIdx;
                     instanceData[insIndex].primIndex = primIdx;
 					totalInstance++;
