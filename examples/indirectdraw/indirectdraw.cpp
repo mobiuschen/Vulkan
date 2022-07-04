@@ -55,10 +55,10 @@ enum EAttrLocation : uint32_t
 	Normal,
 	UV,
 	Color,
-	instanceTransformM0,
-	instanceTransformM1,
-	instanceTransformM2,
-	instanceTransformM3,
+	instanceTransformRow0,
+	instanceTransformRow1,
+	instanceTransformRow2,
+	instanceTransformRow3,
 	instanceTexIndex,
 	primitiveIndex
 };
@@ -79,10 +79,10 @@ public:
 
 	// Per-instance data block
 	struct InstanceData {
-		glm::vec4 mat0;
-		glm::vec4 mat1;
-		glm::vec4 mat2;
-		glm::vec4 mat3;
+		glm::vec4 transRow0;
+		glm::vec4 transRow1;
+		glm::vec4 transRow2;
+		glm::vec4 transRow3;
 		uint32_t texIndex;
 		uint32_t primIndex;
 	};
@@ -351,10 +351,10 @@ public:
             vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID,   EAttrLocation::Color, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 8),				// Location 3: Color
             // Per-Instance attributes
             // These are fetched for each instance rendered
-            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformM0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, mat0)),
-            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformM1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, mat1)),
-            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformM2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, mat2)),
-            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformM3, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, mat3)),
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, transRow0)),
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, transRow1)),
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, transRow2)),
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow3, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, transRow3)),
             vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTexIndex, VK_FORMAT_R32_SINT, offsetof(InstanceData, texIndex)),		// Location 7: Texture array layer index
             vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::primitiveIndex, VK_FORMAT_R32_SINT, offsetof(InstanceData, primIndex)),		// Location 8: Primitive index
 		};
@@ -473,13 +473,13 @@ public:
                     float phi = acos(1 - 2 * uniformDist(rndEngine));
 
 					const float scale = 2.0f;
-                    glm::mat4 insTransform = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 0, 0));
+                    glm::mat4 insTransform = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, plantIdx));
 					insTransform = glm::rotate(insTransform, glm::radians(0.0f), { 0.0f, 1.0f, 0.0f });
 					insTransform = glm::scale(insTransform, { scale, scale, scale });
-                    instanceData[insIndex].mat0 = insTransform[0];
-                    instanceData[insIndex].mat1 = insTransform[1];
-                    instanceData[insIndex].mat2 = insTransform[2];
-                    instanceData[insIndex].mat3 = insTransform[3];
+					instanceData[insIndex].transRow0 = { insTransform[0][0], insTransform[1][0], insTransform[2][0], insTransform[3][0] };
+					instanceData[insIndex].transRow1 = { insTransform[0][1], insTransform[1][1], insTransform[2][1], insTransform[3][1] };
+                    instanceData[insIndex].transRow2 = { insTransform[0][2], insTransform[1][2], insTransform[2][2], insTransform[3][2] };
+                    instanceData[insIndex].transRow3 = { insTransform[0][3], insTransform[1][3], insTransform[2][3], insTransform[3][3] };
                     instanceData[insIndex].texIndex = plantIdx;
                     instanceData[insIndex].primIndex = primIdx;
 					totalInstance++;

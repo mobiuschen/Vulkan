@@ -7,10 +7,10 @@ struct VSInput
 [[vk::location(2)]] float2 UV : TEXCOORD0;
 [[vk::location(3)]] float3 Color : COLOR0;
 											   
-[[vk::location(4)]] float4 instanceMat0 : TEXCOORD1;
-[[vk::location(5)]] float4 instanceMat1 : TEXCOORD2;
-[[vk::location(6)]] float4 instanceMat2 : TEXCOORD3;
-[[vk::location(7)]] float4 instanceMat3 : TEXCOORD4;
+[[vk::location(4)]] float4 instanceMatRow0 : TEXCOORD1;
+[[vk::location(5)]] float4 instanceMatRow1 : TEXCOORD2;
+[[vk::location(6)]] float4 instanceMatRow2 : TEXCOORD3;
+[[vk::location(7)]] float4 instanceMatRow3 : TEXCOORD4;
 [[vk::location(8)]] int instanceTexIndex : TEXCOORD5;
 [[vk::location(9)]] int primitiveIndex : TEXCOORD6;
 };
@@ -48,11 +48,11 @@ VSOutput main(VSInput input)
 	output.Color = input.Color;
 	output.UV = float3(input.UV, input.instanceTexIndex);
 
-	float4x4 instanceMat;				  
-	instanceMat[0] = float4(input.instanceMat0.x, input.instanceMat1.x, input.instanceMat2.x, input.instanceMat3.x);
-	instanceMat[1] = float4(input.instanceMat0.y, input.instanceMat1.y, input.instanceMat2.y, input.instanceMat3.y);
-	instanceMat[2] = float4(input.instanceMat0.z, input.instanceMat1.z, input.instanceMat2.z, input.instanceMat3.z);
-	instanceMat[3] = float4(input.instanceMat0.w, input.instanceMat1.w, input.instanceMat2.w, input.instanceMat3.w);
+	float4x4 instanceMat;				  																			
+	instanceMat[0] = input.instanceMatRow0;
+	instanceMat[1] = input.instanceMatRow1;
+	instanceMat[2] = input.instanceMatRow2;
+	instanceMat[3] = input.instanceMatRow3;
 																		   
 	float4x4 primMat = primitiveData[input.primitiveIndex].transform;
 	float4x4 ins2PrimMat = mul(primMat, instanceMat);
