@@ -72,11 +72,6 @@ enum ERegister: uint32_t
 	Materials
 };
 
-struct GameMaterial
-{
-	
-};
-
 struct GamePrimitiveInstance
 {
 	glm::mat4 transform;
@@ -164,6 +159,10 @@ public:
 	VkPipelineLayout pipelineLayout;
 	VkDescriptorSet descriptorSet;
 	VkDescriptorSetLayout descriptorSetLayout;
+
+	VkPipelineLayout computePipelineLayout;
+	VkDescriptorSet computeDescriptorSet;
+	VkDescriptorSetLayout computeDescriptorSetLayout;
 
 	VkSampler samplerRepeat;
 
@@ -321,24 +320,38 @@ public:
 
 	void setupDescriptorSetLayout()
 	{
-		std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings = {
-			// Binding 0: Vertex shader uniform buffer
-			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, ERegister::Scene),
-			// Binding 1: Fragment shader combined sampler (plants texture array)
-            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, ERegister::PlantTextureArray),
-            // Binding 2: Fragment shader combined sampler (ground texture)
-            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, ERegister::Texture),
-            // Binding 3: vertex shader uniform buffer primitive data
-            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, ERegister::Primitives),
-			// Binding 4
-            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, ERegister::Materials),
-		};
+		{
+            std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings = {
+                // Binding 0: Vertex shader uniform buffer
+                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, ERegister::Scene),
+                // Binding 1: Fragment shader combined sampler (plants texture array)
+                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, ERegister::PlantTextureArray),
+                // Binding 2: Fragment shader combined sampler (ground texture)
+                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, ERegister::Texture),
+                // Binding 3: vertex shader uniform buffer primitive data
+                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, ERegister::Primitives),
+                // Binding 4
+                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, ERegister::Materials),
+            };
 
-		VkDescriptorSetLayoutCreateInfo descriptorLayout = vks::initializers::descriptorSetLayoutCreateInfo(setLayoutBindings);
-		VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorLayout, nullptr, &descriptorSetLayout));
+            VkDescriptorSetLayoutCreateInfo descriptorLayout = vks::initializers::descriptorSetLayoutCreateInfo(setLayoutBindings);
+            VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorLayout, nullptr, &descriptorSetLayout));
 
-		VkPipelineLayoutCreateInfo pPipelineLayoutCreateInfo = vks::initializers::pipelineLayoutCreateInfo(&descriptorSetLayout, 1);
-		VK_CHECK_RESULT(vkCreatePipelineLayout(device, &pPipelineLayoutCreateInfo, nullptr, &pipelineLayout));
+            VkPipelineLayoutCreateInfo pPipelineLayoutCreateInfo = vks::initializers::pipelineLayoutCreateInfo(&descriptorSetLayout, 1);
+            VK_CHECK_RESULT(vkCreatePipelineLayout(device, &pPipelineLayoutCreateInfo, nullptr, &pipelineLayout));
+		}
+
+		{
+            std::vector<VkDescriptorSetLayoutBinding> computeSetLayoutBindings = {
+                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0),
+            };
+
+			VkDescriptorSetLayoutCreateInfo createInfo = vks::initializers::descriptorSetLayoutCreateInfo(computeSetLayoutBindings);
+			VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &createInfo, nullptr, &computeDescriptorSetLayout));
+
+			VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = vks::initializers::pipelineLayoutCreateInfo(&computeDescriptorSetLayout, 1);
+			VK_CHECK_RESULT(vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, nullptr, &computePipelineLayout));
+		}
 	}
 
 	void setupDescriptorSet()
@@ -684,12 +697,10 @@ public:
 		VulkanExampleBase::prepare();
 		loadAssets();
 		prepareMaterials();
-		prepareGameData();
-		//prepareIndirectData();
+        prepareGameData();
+        prepareRenderData();
+        prepareSceneData();
 		prepareDrawData();
-		prepareRenderData();
-		//prepareInstanceData();
-		prepareSceneData();
 		setupDescriptorSetLayout();
 		preparePipelines();
 		setupDescriptorPool();
