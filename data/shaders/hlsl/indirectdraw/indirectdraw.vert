@@ -24,8 +24,10 @@ struct UBO
 struct PrimitiveData
 {
     float4x4 transform;
-    float3 pos;
     float cullDistance;
+	float padding0;
+	float padding1;
+	float padding2;
 };
 
 cbuffer ubo : register(b0) { UBO ubo; }

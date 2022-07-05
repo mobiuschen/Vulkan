@@ -72,6 +72,30 @@ enum ERegister: uint32_t
 	Materials
 };
 
+struct GameMaterial
+{
+	
+};
+
+struct GamePrimitiveInstance
+{
+	glm::mat4 transform;
+};
+
+struct GamePrimitive
+{
+	glm::mat4 transform;
+	int32_t meshIndex;
+	int32_t materialIndex;
+
+	std::vector<GamePrimitiveInstance> instances;
+};
+
+struct GameScene
+{
+	std::vector<GamePrimitive> primitives;
+};
+
 class VulkanExample : public VulkanExampleBase
 {
 public:
@@ -87,22 +111,23 @@ public:
 	} models;
 
 	// Per-instance data block
-	struct InstanceData {
+	struct RenderInstanceData {
 		glm::vec4 transRow0;
 		glm::vec4 transRow1;
 		glm::vec4 transRow2;
 		glm::vec4 transRow3;
-		uint32_t texIndex;
-		uint32_t primIndex;
+		uint32_t materialIndex = 0;
+		uint32_t primIndex = 0;
 	};
 
 	struct Material {
 		glm::vec4 tint;
 		uint32_t textureIndex;
-		uint32_t padding0;
-		uint32_t padding1;
-		uint32_t padding2;
+		uint32_t padding0 = 0;
+		uint32_t padding1 = 0;
+		uint32_t padding2 = 0;
 	};
+
 
 	// Contains the instanced data
 	vks::Buffer instanceBuffer;
@@ -116,10 +141,12 @@ public:
 		glm::mat4 view;
 	} uboVS;
 
-	struct PrimitiveData {
+	struct RenderPrimitiveData {
 		glm::mat4 transform;
-		glm::vec3 pos;
-		float cullDistance;
+        float cullDistance;
+        float padding0;
+        float padding1;
+        float padding2;
 	};
 
 	struct {
@@ -146,6 +173,8 @@ public:
 	std::vector<VkDrawIndexedIndirectCommand> indirectCommands;
 
 	std::vector<Material> materials;
+
+	GameScene gameScene;
 
 	VulkanExample() : VulkanExampleBase(ENABLE_VALIDATION)
 	{
@@ -267,6 +296,15 @@ public:
 		models.skysphere.loadFromFile(getAssetPath() + "models/sphere.gltf", vulkanDevice, queue, glTFLoadingFlags);
 		textures.plants.loadFromFile(getAssetPath() + "textures/texturearray_plants_rgba.ktx", VK_FORMAT_R8G8B8A8_UNORM, vulkanDevice, queue);
 		textures.ground.loadFromFile(getAssetPath() + "textures/ground_dry_rgba.ktx", VK_FORMAT_R8G8B8A8_UNORM, vulkanDevice, queue);
+
+		plantTypeCount = 0;
+		for ( auto& node : models.plants.nodes )
+		{
+			if ( node->mesh )
+			{
+				plantTypeCount++;
+			}
+		}
 	}
 
 	void setupDescriptorPool()
@@ -358,7 +396,7 @@ public:
 		    // Binding point 0: Mesh vertex layout description at per-vertex rate
 		    vks::initializers::vertexInputBindingDescription(VERTEX_BUFFER_BIND_ID, sizeof(vkglTF::Vertex), VK_VERTEX_INPUT_RATE_VERTEX),
 		    // Binding point 1: Instanced data at per-instance rate
-		    vks::initializers::vertexInputBindingDescription(INSTANCE_BUFFER_BIND_ID, sizeof(InstanceData), VK_VERTEX_INPUT_RATE_INSTANCE)
+		    vks::initializers::vertexInputBindingDescription(INSTANCE_BUFFER_BIND_ID, sizeof(RenderInstanceData), VK_VERTEX_INPUT_RATE_INSTANCE)
 		};
 
 		// Vertex attribute bindings
@@ -370,18 +408,18 @@ public:
 		attributeDescriptions = {
 		    // Per-vertex attributes
 		    // These are advanced for each vertex fetched by the vertex shader
-            vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID,   EAttrLocation::Pos, VK_FORMAT_R32G32B32_SFLOAT, 0),								// Location 0: Position
-            vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID,   EAttrLocation::Normal, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 3),				// Location 1: Normal
-            vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID,   EAttrLocation::UV, VK_FORMAT_R32G32_SFLOAT, sizeof(float) * 6),					// Location 2: Texture coordinates
-            vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID,   EAttrLocation::Color, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 8),				// Location 3: Color
+            vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID,   EAttrLocation::Pos, VK_FORMAT_R32G32B32_SFLOAT, 0),
+            vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID,   EAttrLocation::Normal, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 3),
+            vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID,   EAttrLocation::UV, VK_FORMAT_R32G32_SFLOAT, sizeof(float) * 6),
+            vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID,   EAttrLocation::Color, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 8),
             // Per-Instance attributes
             // These are fetched for each instance rendered
-            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, transRow0)),
-            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, transRow1)),
-            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, transRow2)),
-            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow3, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, transRow3)),
-            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTexIndex, VK_FORMAT_R32_SINT, offsetof(InstanceData, texIndex)),		// Location 7: Texture array layer index
-            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::primitiveIndex, VK_FORMAT_R32_SINT, offsetof(InstanceData, primIndex)),		// Location 8: Primitive index
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(RenderInstanceData, transRow0)),
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(RenderInstanceData, transRow1)),
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(RenderInstanceData, transRow2)),
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow3, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(RenderInstanceData, transRow3)),
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTexIndex, VK_FORMAT_R32_SINT, offsetof(RenderInstanceData, materialIndex)),		
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::primitiveIndex, VK_FORMAT_R32_SINT, offsetof(RenderInstanceData, primIndex)),
 		};
 		inputState.pVertexBindingDescriptions = bindingDescriptions.data();
 		inputState.pVertexAttributeDescriptions = attributeDescriptions.data();
@@ -413,59 +451,50 @@ public:
 		VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineCreateInfo, nullptr, &pipelines.skysphere));
 	}
 
-	// Prepare (and stage) a buffer containing the indirect draw commands
-	void prepareIndirectData()
+
+	void prepareDrawData()
 	{
 		indirectCommands.clear();
 
-		// Create on indirect command for node in the scene with a mesh attached to it
-		uint32_t m = 0;
-		for (auto &node : models.plants.nodes)
+		uint32_t insCount = 0;
+		for ( auto& prim : gameScene.primitives )
 		{
-			if (node->mesh)
-			{
-				VkDrawIndexedIndirectCommand indirectCmd{};
-				indirectCmd.instanceCount = OBJECT_INSTANCE_COUNT;
-				indirectCmd.firstInstance = m * OBJECT_INSTANCE_COUNT;
-				// @todo: Multiple primitives
-				// A glTF node may consist of multiple primitives, so we may have to do multiple commands per mesh
-				indirectCmd.firstIndex = node->mesh->primitives[0]->firstIndex;
-				indirectCmd.indexCount = node->mesh->primitives[0]->indexCount;
+			const vkglTF::Mesh* mesh = models.plants.nodes[prim.meshIndex]->mesh;
+			VkDrawIndexedIndirectCommand indirectCmd;
+			indirectCmd.instanceCount = (uint32_t)prim.instances.size();
+            indirectCmd.firstInstance = insCount;
+            indirectCmd.firstIndex = mesh->primitives[0]->firstIndex;
+            indirectCmd.indexCount = mesh->primitives[0]->indexCount;
+			indirectCmd.vertexOffset = 0;
+			
+			indirectCommands.push_back(indirectCmd);
 
-				indirectCommands.push_back(indirectCmd);
-
-				m++;
-			}
+			insCount += indirectCmd.instanceCount;
 		}
 
-		plantTypeCount = m;
+        indirectDrawCount = static_cast<uint32_t>(indirectCommands.size());
+		objectCount = insCount;
 
-		indirectDrawCount = static_cast<uint32_t>(indirectCommands.size());
 
-		objectCount = 0;
-		for (auto& indirectCmd : indirectCommands)
-		{
-			objectCount += indirectCmd.instanceCount;
-		}
+        vks::Buffer stagingBuffer;
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &stagingBuffer,
+            indirectCommands.size() * sizeof(VkDrawIndexedIndirectCommand),
+            indirectCommands.data()));
 
-		vks::Buffer stagingBuffer;
-		VK_CHECK_RESULT(vulkanDevice->createBuffer(
-			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			&stagingBuffer,
-			indirectCommands.size() * sizeof(VkDrawIndexedIndirectCommand),
-			indirectCommands.data()));
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            &indirectCommandsBuffer,
+            stagingBuffer.size));
 
-		VK_CHECK_RESULT(vulkanDevice->createBuffer(
-			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			&indirectCommandsBuffer,
-			stagingBuffer.size));
+        vulkanDevice->copyBuffer(&stagingBuffer, &indirectCommandsBuffer, queue);
 
-		vulkanDevice->copyBuffer(&stagingBuffer, &indirectCommandsBuffer, queue);
-
-		stagingBuffer.destroy();
+        stagingBuffer.destroy();
 	}
+
 
 	void prepareMaterials()
     {
@@ -508,60 +537,78 @@ public:
 		stagingBuffer.destroy();
 	}
 
-	void preparePrimitiveData()
+
+    void prepareGameData()
     {
-		// setup primitive data
-        std::vector<PrimitiveData> primitives;
-		primitives.resize(PRIMITIVE_COUNT);
-
-        // setup instance data
-        std::vector<InstanceData> instanceData;
-        instanceData.resize(objectCount);
-
-		uint32_t totalInstance = 0;
-		for ( uint32_t primIdx = 0; primIdx < PRIMITIVE_COUNT; primIdx++ )
-		{
-            primitives[primIdx].cullDistance = CULL_DISTANCE;
-            primitives[primIdx].transform = 
-            	glm::translate(glm::mat4(1.0f), 
-            				   glm::vec3((float)(primIdx % PRIMITIVE_COUNT_BORDER) * PRIM_GAP, 0.0f, (float)(primIdx / PRIMITIVE_COUNT_BORDER) * PRIM_GAP));
-            primitives[primIdx].pos = glm::vec3(primIdx*2, 0, 0);
+        gameScene.primitives.resize(PRIMITIVE_COUNT);
+        for ( size_t primIdx = 0; primIdx < gameScene.primitives.size(); primIdx++ )
+        {
+            GamePrimitive& prim = gameScene.primitives[primIdx];
+            prim.transform =
+                glm::translate(glm::mat4(1.0f),
+                               glm::vec3((float)(primIdx % PRIMITIVE_COUNT_BORDER) * PRIM_GAP, 0.0f, (float)(primIdx / PRIMITIVE_COUNT_BORDER) * PRIM_GAP));
+            prim.meshIndex = primIdx % plantTypeCount;
+            prim.materialIndex = prim.meshIndex;
 
             std::default_random_engine rndEngine(benchmark.active ? 0 : (unsigned)time(nullptr));
             std::uniform_real_distribution<float> uniformDist(0.0f, 1.0f);
-
-			for ( uint32_t plantIdx = 0; plantIdx < plantTypeCount; plantIdx++ )
+            prim.instances.resize(INSTANCE_PER_PRIM_PER_MESH);
+            for ( size_t insIdx = 0; insIdx < INSTANCE_PER_PRIM_PER_MESH; insIdx++ )
             {
-                for ( uint32_t ins = 0; ins < INSTANCE_PER_PRIM_PER_MESH; ins++ )
-                {
-                    const uint32_t insIndex = primIdx * plantIdx * INSTANCE_PER_PRIM_PER_MESH + ins;
-                    float theta = 2 * float(M_PI) * uniformDist(rndEngine);
-                    float phi = acos(1 - 2 * uniformDist(rndEngine));
+                float theta = 2 * float(M_PI) * uniformDist(rndEngine);
+                float phi = acos(1 - 2 * uniformDist(rndEngine));
+                GamePrimitiveInstance& instance = prim.instances[insIdx];
 
-					const float scale = 2.0f;
-					const glm::vec3 pos = glm::vec3(sin(phi) * cos(theta), 0.0f, cos(phi)) * PLANT_RADIUS;
-                    glm::mat4 insTransform = glm::translate(glm::mat4(1.0f), pos);
-					insTransform = glm::rotate(insTransform, glm::radians(0.0f), { 0.0f, 1.0f, 0.0f });
-					insTransform = glm::scale(insTransform, { scale, scale, scale });
-					instanceData[insIndex].transRow0 = { insTransform[0][0], insTransform[1][0], insTransform[2][0], insTransform[3][0] };
-					instanceData[insIndex].transRow1 = { insTransform[0][1], insTransform[1][1], insTransform[2][1], insTransform[3][1] };
-                    instanceData[insIndex].transRow2 = { insTransform[0][2], insTransform[1][2], insTransform[2][2], insTransform[3][2] };
-                    instanceData[insIndex].transRow3 = { insTransform[0][3], insTransform[1][3], insTransform[2][3], insTransform[3][3] };
-                    instanceData[insIndex].texIndex = plantIdx;
-                    instanceData[insIndex].primIndex = primIdx;
-					totalInstance++;
-                }
-			}
+                const float scale = 2.0f;
+                const glm::vec3 pos = glm::vec3(sin(phi) * cos(theta), 0.0f, cos(phi)) * PLANT_RADIUS;
+                glm::mat4 insTransform = glm::translate(glm::mat4(1.0f), pos);
+                instance.transform = insTransform;
+            }
+        }
+    }
+
+	void prepareRenderData()
+    {
+        std::vector<RenderPrimitiveData> primitives;
+        primitives.resize(gameScene.primitives.size());
+
+        size_t totalInstanceCount = 0;
+		for ( size_t primIdx = 0; primIdx < primitives.size(); primIdx++ )
+		{
+			primitives[primIdx].cullDistance = CULL_DISTANCE;
+            primitives[primIdx].transform = gameScene.primitives[primIdx].transform;
+            totalInstanceCount += gameScene.primitives[primIdx].instances.size();
 		}
 
-		assert(totalInstance == objectCount);
+
+        std::vector<RenderInstanceData> instanceData;
+        instanceData.resize(totalInstanceCount);
+
+		size_t rinsIdx = 0;
+		for ( size_t primIdx = 0; primIdx < gameScene.primitives.size(); primIdx++ )
+		{
+			const GamePrimitive& gprim = gameScene.primitives[primIdx];
+			for ( size_t insIdx = 0; insIdx < gameScene.primitives[primIdx].instances.size(); insIdx++ )
+			{
+				const GamePrimitiveInstance& gins = gprim.instances[insIdx];
+				RenderInstanceData& rins = instanceData[rinsIdx];
+                rins.transRow0 = { gins.transform[0][0], gins.transform[1][0], gins.transform[2][0], gins.transform[3][0] };
+                rins.transRow1 = { gins.transform[0][1], gins.transform[1][1], gins.transform[2][1], gins.transform[3][1] };
+                rins.transRow2 = { gins.transform[0][2], gins.transform[1][2], gins.transform[2][2], gins.transform[3][2] };
+                rins.transRow3 = { gins.transform[0][3], gins.transform[1][3], gins.transform[2][3], gins.transform[3][3] };
+				rins.materialIndex = gprim.materialIndex;
+                rins.primIndex = (uint32_t)primIdx;
+
+				rinsIdx++;
+			}
+		}
 
 		vks::Buffer stagingBuffer;
 		VK_CHECK_RESULT(vulkanDevice->createBuffer(
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			&stagingBuffer,
-			primitives.size() * sizeof(PrimitiveData),
+			primitives.size() * sizeof(RenderPrimitiveData),
 			primitives.data()
 		));
 
@@ -580,7 +627,7 @@ public:
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             &stagingBuffer,
-            instanceData.size() * sizeof(InstanceData),
+            instanceData.size() * sizeof(RenderInstanceData),
             instanceData.data()));
 
         VK_CHECK_RESULT(vulkanDevice->createBuffer(
@@ -593,43 +640,6 @@ public:
 
         stagingBuffer.destroy();
 	}
-
-	//// Prepare (and stage) a buffer containing instanced data for the mesh draws
-	//void prepareInstanceData()
-	//{
-	//	std::vector<InstanceData> instanceData;
-	//	instanceData.resize(objectCount);
-
-	//	std::default_random_engine rndEngine(benchmark.active ? 0 : (unsigned)time(nullptr));
-	//	std::uniform_real_distribution<float> uniformDist(0.0f, 1.0f);
-
-	//	for (uint32_t i = 0; i < objectCount; i++) {
-	//		float theta = 2 * float(M_PI) * uniformDist(rndEngine);
-	//		float phi = acos(1 - 2 * uniformDist(rndEngine));
-	//		instanceData[i].rot = glm::vec3(0.0f, float(M_PI) * uniformDist(rndEngine), 0.0f);
-	//		instanceData[i].pos = glm::vec3(sin(phi) * cos(theta), 0.0f, cos(phi)) * PLANT_RADIUS;
-	//		instanceData[i].scale = 1.0f + uniformDist(rndEngine) * 2.0f;
-	//		instanceData[i].texIndex = i / OBJECT_INSTANCE_COUNT;
-	//	}
-
-	//	vks::Buffer stagingBuffer;
-	//	VK_CHECK_RESULT(vulkanDevice->createBuffer(
-	//		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-	//		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-	//		&stagingBuffer,
-	//		instanceData.size() * sizeof(InstanceData),
-	//		instanceData.data()));
-
-	//	VK_CHECK_RESULT(vulkanDevice->createBuffer(
-	//		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-	//		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-	//		&instanceBuffer,
-	//		stagingBuffer.size));
-
-	//	vulkanDevice->copyBuffer(&stagingBuffer, &instanceBuffer, queue);
-
-	//	stagingBuffer.destroy();
-	//}
 
 	void prepareSceneData()
 	{
@@ -674,8 +684,10 @@ public:
 		VulkanExampleBase::prepare();
 		loadAssets();
 		prepareMaterials();
-		prepareIndirectData();
-		preparePrimitiveData();
+		prepareGameData();
+		//prepareIndirectData();
+		prepareDrawData();
+		prepareRenderData();
 		//prepareInstanceData();
 		prepareSceneData();
 		setupDescriptorSetLayout();
