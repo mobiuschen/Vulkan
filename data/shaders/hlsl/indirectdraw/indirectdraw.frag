@@ -4,7 +4,10 @@
 struct Material
 {
 	float4 tint;
-	int textureIndex;
+	uint textureIndex;
+	uint padding0;
+	uint padding1;
+	uint padding2;
 };
 
 Texture2DArray textureArray : register(t1);

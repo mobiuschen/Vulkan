@@ -99,6 +99,9 @@ public:
 	struct Material {
 		glm::vec4 tint;
 		uint32_t textureIndex;
+		uint32_t padding0;
+		uint32_t padding1;
+		uint32_t padding2;
 	};
 
 	// Contains the instanced data
@@ -465,16 +468,26 @@ public:
 	}
 
 	void prepareMaterials()
-	{
+    {
+        VkDeviceSize minStorageBufferOffsetAlignment = vulkanDevice->properties.limits.minStorageBufferOffsetAlignment;
+        uint32_t maxDescriptorSetStorageBuffers = vulkanDevice->properties.limits.maxDescriptorSetStorageBuffers;
+
+		const size_t MaterialSize = sizeof(Material);
+        std::cout << "minStorageBufferOffsetAlignment: " << minStorageBufferOffsetAlignment << std::endl;
+        std::cout << "maxDescriptorSetStorageBuffers: " << maxDescriptorSetStorageBuffers << std::endl;
+        std::cout << "sizeof(Material): " << MaterialSize << std::endl;
+
 		std::vector<Material> materials;
 		for ( uint32_t i = 0; i < textures.plants.layerCount; i++ )
         {
             Material mat;
             mat.tint = glm::vec4(1.0, 1.0, 1.0, 1.0);
             mat.textureIndex = i;
+            mat.padding0 = 0;
+            mat.padding1 = 0;
+            mat.padding2 = 0;
             materials.push_back(mat);
         }
-
         vks::Buffer stagingBuffer;
         VK_CHECK_RESULT(vulkanDevice->createBuffer(
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
