@@ -72,7 +72,7 @@ enum ERenderBinding: uint32_t
 	Materials
 };
 
-enum EComputeBinding : uint32_t
+enum class EComputeBinding : uint32_t
 {
 	Instances,
 	OutDrawCommands,
@@ -177,6 +177,7 @@ public:
 	VkCommandPool commputeCommandPool;
 	VkCommandBuffer computeCommandBuffer;
 	VkFence computeFence;
+	VkSemaphore computeSemaphore;
 
 	VkSampler samplerRepeat;
 
@@ -213,6 +214,16 @@ public:
 		uniformData.scene.destroy();
 		uniformData.primitives.destroy();
 		uniformData.materials.destroy();
+
+		vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
+		vkDestroyDescriptorSetLayout(device, computeDescriptorSetLayout, nullptr);
+		vkDestroyPipeline(device, computePipeline, nullptr);
+		vkDestroyCommandPool(device, commputeCommandPool, nullptr);
+		vkDestroyFence(device, computeFence, nullptr);
+		vkDestroySemaphore(device, computeSemaphore, nullptr);
+
+        //VkDescriptorSet computeDescriptorSet;
+        //VkCommandBuffer computeCommandBuffer;
 	}
 
 	// Enable physical device features required for this example
@@ -394,10 +405,10 @@ public:
 		{
 			VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &computeDescriptorSetLayout, 1);
             std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
-                vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, EComputeBinding::Instances, &instanceBuffer.descriptor),
-                vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, EComputeBinding::OutDrawCommands, &indirectCommandsBuffer.descriptor),
-                vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, EComputeBinding::View, &uniformData.scene.descriptor),
-                vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, EComputeBinding::Primitives, &uniformData.primitives.descriptor),
+                vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (uint32_t)EComputeBinding::Instances, &instanceBuffer.descriptor),
+                vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (uint32_t)EComputeBinding::OutDrawCommands, &indirectCommandsBuffer.descriptor),
+                vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, (uint32_t)EComputeBinding::View, &uniformData.scene.descriptor),
+                vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (uint32_t)EComputeBinding::Primitives, &uniformData.primitives.descriptor),
 			};
 			vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 		}
@@ -405,6 +416,7 @@ public:
 
 	void prepareComputePipeline()
 	{
+		// create pipeline
 		{
             VkComputePipelineCreateInfo createInfo = vks::initializers::computePipelineCreateInfo(computePipelineLayout, 0);
             createInfo.stage = loadShader(getShadersPath() + "indirectdraw/cull.comp.spv", VK_SHADER_STAGE_COMPUTE_BIT);
@@ -425,6 +437,7 @@ public:
 			VK_CHECK_RESULT(vkCreateComputePipelines(device, pipelineCache, 1, &createInfo, nullptr, &computePipeline));
 		}
 		
+		// create fence
 		{
 			VkCommandPoolCreateInfo createInfo = vks::initializers::commandPoolCreateInfo();
 			createInfo.queueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
@@ -432,16 +445,17 @@ public:
 			VK_CHECK_RESULT(vkCreateCommandPool(device, &createInfo, nullptr, &commputeCommandPool));
 
 			VkCommandBufferAllocateInfo allocInfo = vks::initializers::commandBufferAllocateInfo(commputeCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
-			VK_CHECK_RESULT(vkAllocateCommandBuffers(device, allocInfo, &computeCommandBuffer));
+			VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &allocInfo, &computeCommandBuffer));
 			
 		}
 		
+		// create semaphore
 		{
 			VkFenceCreateInfo createInfo = vks::initializers::fenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
 			VK_CHECK_RESULT(vkCreateFence(device, &createInfo, nullptr, &computeFence));
 
 			VkSemaphoreCreateInfo semaphoreCreateInfo = vks::initializers::semaphoreCreateInfo();
-			VK_CHECK_RESULT(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphoreCreateInfo));
+			VK_CHECK_RESULT(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &computeSemaphore));
 		}
 	}
 
@@ -753,12 +767,15 @@ public:
 	{
 		VulkanExampleBase::prepareFrame();
 
+		vkWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
+		vkResetFences(device, 1, &computeFence);
+
 		// Command buffer to be submitted to the queue
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &drawCmdBuffers[currentBuffer];
 
 		// Submit to queue
-		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
+		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, computeFence));
 
 		VulkanExampleBase::submitFrame();
 	}

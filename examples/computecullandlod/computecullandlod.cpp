@@ -169,7 +169,7 @@ public:
 
 			if (vulkanDevice->features.multiDrawIndirect)
 			{
-				vkCmdDrawIndexedIndirect(drawCmdBuffers[i], indirectCommandsBuffer.buffer, 0, indirectCommands.size(), sizeof(VkDrawIndexedIndirectCommand));
+				vkCmdDrawIndexedIndirect(drawCmdBuffers[i], indirectCommandsBuffer.buffer, 0, (uint32_t)indirectCommands.size(), sizeof(VkDrawIndexedIndirectCommand));
 			}
 			else
 			{
