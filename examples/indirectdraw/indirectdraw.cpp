@@ -63,13 +63,23 @@ enum EAttrLocation : uint32_t
 	primitiveIndex
 };
 
-enum ERegister: uint32_t
+enum ERenderBinding: uint32_t
 {
 	Scene,
 	PlantTextureArray,
 	Texture,
 	Primitives,
 	Materials
+};
+
+enum EComputeBinding : uint32_t
+{
+	Instances,
+	OutDrawCommands,
+	View,
+	//OutStat,
+	//LODs,
+	Primitives
 };
 
 struct GamePrimitiveInstance
@@ -163,6 +173,10 @@ public:
 	VkPipelineLayout computePipelineLayout;
 	VkDescriptorSet computeDescriptorSet;
 	VkDescriptorSetLayout computeDescriptorSetLayout;
+	VkPipeline computePipeline;
+	VkCommandPool commputeCommandPool;
+	VkCommandBuffer computeCommandBuffer;
+	VkFence computeFence;
 
 	VkSampler samplerRepeat;
 
@@ -320,18 +334,19 @@ public:
 
 	void setupDescriptorSetLayout()
 	{
+		// graphics pipeline
 		{
             std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings = {
                 // Binding 0: Vertex shader uniform buffer
-                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, ERegister::Scene),
+                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, ERenderBinding::Scene),
                 // Binding 1: Fragment shader combined sampler (plants texture array)
-                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, ERegister::PlantTextureArray),
+                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, ERenderBinding::PlantTextureArray),
                 // Binding 2: Fragment shader combined sampler (ground texture)
-                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, ERegister::Texture),
+                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, ERenderBinding::Texture),
                 // Binding 3: vertex shader uniform buffer primitive data
-                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, ERegister::Primitives),
+                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, ERenderBinding::Primitives),
                 // Binding 4
-                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, ERegister::Materials),
+                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, ERenderBinding::Materials),
             };
 
             VkDescriptorSetLayoutCreateInfo descriptorLayout = vks::initializers::descriptorSetLayoutCreateInfo(setLayoutBindings);
@@ -341,6 +356,7 @@ public:
             VK_CHECK_RESULT(vkCreatePipelineLayout(device, &pPipelineLayoutCreateInfo, nullptr, &pipelineLayout));
 		}
 
+		// compute pipeline
 		{
             std::vector<VkDescriptorSetLayoutBinding> computeSetLayoutBindings = {
                 vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0),
@@ -356,22 +372,77 @@ public:
 
 	void setupDescriptorSet()
 	{
-		VkDescriptorSetAllocateInfo allocInfo =vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayout, 1);
-		VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet));
+        {
+            VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayout, 1);
+            VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet));
 
-		std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
-			// Binding 0: Vertex shader uniform buffer
-			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, ERegister::Scene, &uniformData.scene.descriptor),
-			// Binding 1: Plants texture array combined
-			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, ERegister::PlantTextureArray, &textures.plants.descriptor),
-			// Binding 2: Ground texture combined
-			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, ERegister::Texture, &textures.ground.descriptor),
-			// Binding 3: Primitive Data uniform buffer
-			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ERegister::Primitives, &uniformData.primitives.descriptor),
-			// Binding 4
-			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ERegister::Materials, &uniformData.materials.descriptor)
-		};
-		vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
+            std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
+                // Binding 0: Vertex shader uniform buffer
+                vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, ERenderBinding::Scene, &uniformData.scene.descriptor),
+                // Binding 1: Plants texture array combined
+                vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, ERenderBinding::PlantTextureArray, &textures.plants.descriptor),
+                // Binding 2: Ground texture combined
+                vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, ERenderBinding::Texture, &textures.ground.descriptor),
+                // Binding 3: Primitive Data uniform buffer
+                vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ERenderBinding::Primitives, &uniformData.primitives.descriptor),
+                // Binding 4
+                vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ERenderBinding::Materials, &uniformData.materials.descriptor)
+            };
+            vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
+		}
+		
+		{
+			VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &computeDescriptorSetLayout, 1);
+            std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
+                vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, EComputeBinding::Instances, &instanceBuffer.descriptor),
+                vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, EComputeBinding::OutDrawCommands, &indirectCommandsBuffer.descriptor),
+                vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, EComputeBinding::View, &uniformData.scene.descriptor),
+                vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, EComputeBinding::Primitives, &uniformData.primitives.descriptor),
+			};
+			vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
+		}
+	}
+
+	void prepareComputePipeline()
+	{
+		{
+            VkComputePipelineCreateInfo createInfo = vks::initializers::computePipelineCreateInfo(computePipelineLayout, 0);
+            createInfo.stage = loadShader(getShadersPath() + "indirectdraw/cull.comp.spv", VK_SHADER_STAGE_COMPUTE_BIT);
+
+            VkSpecializationMapEntry specMapEntry;
+            specMapEntry.constantID = 0;
+            specMapEntry.offset = 0;
+            specMapEntry.size = sizeof(float);
+
+            const float MinCullDistance = 10.0f;
+            VkSpecializationInfo specializationInfo;
+            specializationInfo.mapEntryCount = 1;
+            specializationInfo.pMapEntries = &specMapEntry;
+            specializationInfo.dataSize = sizeof(MinCullDistance);
+            specializationInfo.pData = &MinCullDistance;
+            createInfo.stage.pSpecializationInfo = &specializationInfo;
+
+			VK_CHECK_RESULT(vkCreateComputePipelines(device, pipelineCache, 1, &createInfo, nullptr, &computePipeline));
+		}
+		
+		{
+			VkCommandPoolCreateInfo createInfo = vks::initializers::commandPoolCreateInfo();
+			createInfo.queueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
+			createInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+			VK_CHECK_RESULT(vkCreateCommandPool(device, &createInfo, nullptr, &commputeCommandPool));
+
+			VkCommandBufferAllocateInfo allocInfo = vks::initializers::commandBufferAllocateInfo(commputeCommandPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
+			VK_CHECK_RESULT(vkAllocateCommandBuffers(device, allocInfo, &computeCommandBuffer));
+			
+		}
+		
+		{
+			VkFenceCreateInfo createInfo = vks::initializers::fenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
+			VK_CHECK_RESULT(vkCreateFence(device, &createInfo, nullptr, &computeFence));
+
+			VkSemaphoreCreateInfo semaphoreCreateInfo = vks::initializers::semaphoreCreateInfo();
+			VK_CHECK_RESULT(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphoreCreateInfo));
+		}
 	}
 
 	void preparePipelines()
@@ -702,6 +773,7 @@ public:
         prepareSceneData();
 		prepareDrawData();
 		setupDescriptorSetLayout();
+		prepareComputePipeline();
 		preparePipelines();
 		setupDescriptorPool();
 		setupDescriptorSet();

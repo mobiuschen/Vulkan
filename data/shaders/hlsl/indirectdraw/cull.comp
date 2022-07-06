@@ -1,15 +1,25 @@
 // Copyright 2020 Google LLC
 
-#define MAX_LOD_LEVEL_COUNT 6
-[[vk::constant_id(0)]] const int MAX_LOD_LEVEL = 5;
+[[vk::constant_id(0)]] const float MIN_CULL_DISTANCE = 10.0;
 
 struct InstanceData
 {
-	float3 pos;
-	float scale;
+	float4 transRow0;
+	float4 transRow1;
+	float4 transRow2;
+	float4 transRow3;
+	uint materialIndex;
+	uint primIndex;
 };
 
-StructuredBuffer<InstanceData> instances : register(t0);
+struct PrimitiveData {
+	float4 transform;
+    float cullDistance;
+    float padding0;
+    float padding1;
+    float padding2;
+};
+
 
 // Same layout as VkDrawIndexedIndirectCommand
 struct IndexedIndirectCommand
@@ -21,9 +31,6 @@ struct IndexedIndirectCommand
 	uint firstInstance;
 };
 
-RWStructuredBuffer<IndexedIndirectCommand> indirectDraws : register(u1);
-
-// Binding 2: Uniform block object with matrices
 struct UBO
 {
 	float4x4 projection;
@@ -32,17 +39,12 @@ struct UBO
 	float4 frustumPlanes[6];
 };
 
-cbuffer ubo : register(b2) { UBO ubo; }
-
-// Binding 3: Indirect draw stats
 struct UBOOut
 {
 	uint drawCount;
 	uint lodCount[MAX_LOD_LEVEL_COUNT];
-};
-RWStructuredBuffer<UBOOut> uboOut : register(u3);
+};						 
 
-// Binding 4: level-of-detail information
 struct LOD
 {
 	uint firstIndex;
@@ -51,7 +53,15 @@ struct LOD
 	float _pad0;
 };
 
-StructuredBuffer<LOD> lods : register(t4);
+StructuredBuffer<InstanceData> instances : register(t0);
+RWStructuredBuffer<IndexedIndirectCommand> indirectDraws : register(u1);
+// Binding 2: Uniform block object with matrices
+cbuffer ubo : register(b2) { UBO ubo; }
+// Binding 3: Indirect draw stats
+//RWStructuredBuffer<UBOOut> uboOut : register(u3);
+// Binding 4: level-of-detail information
+//StructuredBuffer<LOD> lods : register(t4);
+StructuredBuffer<PrimitiveData> primitives : register(t3);
 
 [numthreads(16, 1, 1)]
 bool frustumCheck(float4 pos, float radius)
