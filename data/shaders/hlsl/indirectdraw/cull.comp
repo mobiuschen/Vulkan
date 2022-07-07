@@ -8,18 +8,19 @@ struct InstanceData
 	float4 transRow1;
 	float4 transRow2;
 	float4 transRow3;
-	uint materialIndex;
 	uint primIndex;
+	float _pad0;
+	float _pad1;
+	float _pad2;
 };
 
 struct PrimitiveData {
-	float4 transform;
-    float cullDistance;
-    float padding0;
-    float padding1;
-    float padding2;
+	float4x4 transform;
+	float cullDistance;
+	uint firstIndex;
+	uint indexCount;
+	uint materialIndex;
 };
-
 
 // Same layout as VkDrawIndexedIndirectCommand
 struct IndexedIndirectCommand
@@ -31,7 +32,7 @@ struct IndexedIndirectCommand
 	uint firstInstance;
 };
 
-struct UBO
+struct View
 {
 	float4x4 projection;
 	float4x4 modelview;
@@ -39,26 +40,26 @@ struct UBO
 	float4 frustumPlanes[6];
 };
 
-struct UBOOut
-{
-	uint drawCount;
-	uint lodCount[MAX_LOD_LEVEL_COUNT];
-};						 
+// struct Stat
+// {
+// 	uint drawCount;
+// 	uint lodCount[MAX_LOD_LEVEL_COUNT];
+// };
 
-struct LOD
-{
-	uint firstIndex;
-	uint indexCount;
-	float distance;
-	float _pad0;
-};
+// struct LOD
+// {
+// 	uint firstIndex;
+// 	uint indexCount;
+// 	float distance;
+// 	float _pad0;
+// };
 
 StructuredBuffer<InstanceData> instances : register(t0);
 RWStructuredBuffer<IndexedIndirectCommand> indirectDraws : register(u1);
 // Binding 2: Uniform block object with matrices
-cbuffer ubo : register(b2) { UBO ubo; }
+cbuffer view : register(b2) { View view; }
 // Binding 3: Indirect draw stats
-//RWStructuredBuffer<UBOOut> uboOut : register(u3);
+//RWStructuredBuffer<Stat> stat : register(u3);
 // Binding 4: level-of-detail information
 //StructuredBuffer<LOD> lods : register(t4);
 StructuredBuffer<PrimitiveData> primitives : register(t3);
@@ -69,7 +70,7 @@ bool frustumCheck(float4 pos, float radius)
 	// Check sphere against frustum planes
 	for (int i = 0; i < 6; i++)
 	{
-		if (dot(pos, ubo.frustumPlanes[i]) + radius < 0.0)
+		if (dot(pos, view.frustumPlanes[i]) + radius < 0.0)
 		{
 			return false;
 		}
@@ -83,40 +84,28 @@ void main(uint3 GlobalInvocationID : SV_DispatchThreadID )
 	uint idx = GlobalInvocationID.x;
 	uint temp;
 
-	// Clear stats on first invocation
-	if (idx == 0)
-	{
-		InterlockedExchange(uboOut[0].drawCount, 0, temp);
-		for (uint i = 0; i < MAX_LOD_LEVEL + 1; i++)
-		{
-			InterlockedExchange(uboOut[0].lodCount[i], 0, temp);
-		}
-	}
+	// float4 pos = float4(instances[idx].pos.xyz, 1.0);
+	const uint primIdx = instances[idx].primIndex;
+	float4x4 insMat;
+	insMat[0] = instances[idx].transRow0;
+	insMat[1] = instances[idx].transRow1;
+	insMat[2] = instances[idx].transRow2;
+	insMat[3] = instances[idx].transRow3;
+	float4x4 primMat = primitives[primIdx].transform;
+	float4x3 worldMat = mul(primMat, insMat);
+	float4 pos = mul(worldMat[3], float4(0,0,0,1));
+	float cullDistance = primitives[primIdx].cullDistance;
+	uint firstIndex = primitives[primIdx].firstIndex;
+	uint indexCount = primitives[primIdx].indexCount;
 
-	float4 pos = float4(instances[idx].pos.xyz, 1.0);
-
+	indirectDraws[idx].firstIndex = firstIndex;
+	indirectDraws[idx].indexCount = indexCount;
+	indirectDraws[idx].vertexOffset = 0;
+	indirectDraws[idx].firstInstance = 0;
 	// Check if object is within current viewing frustum
-	if (frustumCheck(pos, 1.0))
+	if (frustumCheck(pos, 0.0) || distance(pos.xyz, view.cameraPos.xyz) < cullDistance)
 	{
 		indirectDraws[idx].instanceCount = 1;
-
-		// Increase number of indirect draw counts
-		InterlockedAdd(uboOut[0].drawCount, 1, temp);
-
-		// Select appropriate LOD level based on distance to camera
-		uint lodLevel = MAX_LOD_LEVEL;
-		for (uint i = 0; i < MAX_LOD_LEVEL; i++)
-		{
-			if (distance(instances[idx].pos.xyz, ubo.cameraPos.xyz) < lods[i].distance)
-			{
-				lodLevel = i;
-				break;
-			}
-		}
-		indirectDraws[idx].firstIndex = lods[lodLevel].firstIndex;
-		indirectDraws[idx].indexCount = lods[lodLevel].indexCount;
-		// Update stats
-		InterlockedAdd(uboOut[0].lodCount[lodLevel], 1, temp);
 	}
 	else
 	{

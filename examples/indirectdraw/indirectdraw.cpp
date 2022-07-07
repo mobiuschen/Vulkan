@@ -21,6 +21,7 @@
 
 #include "vulkanexamplebase.h"
 #include "VulkanglTFModel.h"
+#include "frustum.hpp"
 
 #define VERTEX_BUFFER_BIND_ID 0
 #define INSTANCE_BUFFER_BIND_ID 1
@@ -59,7 +60,6 @@ enum EAttrLocation : uint32_t
 	instanceTransformRow1,
 	instanceTransformRow2,
 	instanceTransformRow3,
-	instanceTexIndex,
 	primitiveIndex
 };
 
@@ -121,8 +121,10 @@ public:
 		glm::vec4 transRow1;
 		glm::vec4 transRow2;
 		glm::vec4 transRow3;
-		uint32_t materialIndex = 0;
-		uint32_t primIndex = 0;
+        uint32_t primIndex = 0;
+        float _pad0;
+        float _pad1;
+        float _pad2;
 	};
 
 	struct Material {
@@ -143,15 +145,17 @@ public:
 
 	struct {
 		glm::mat4 projection;
-		glm::mat4 view;
-	} uboVS;
+        glm::mat4 view;
+        glm::vec4 cameraPos;
+        glm::vec4 frustumPlanes[6];
+	} renderScene;
 
 	struct RenderPrimitiveData {
 		glm::mat4 transform;
         float cullDistance;
-        float padding0;
-        float padding1;
-        float padding2;
+        uint32_t firstIndex;
+		uint32_t indexCount;
+		uint32_t materialIndex;
 	};
 
 	struct {
@@ -165,6 +169,9 @@ public:
 		VkPipeline ground;
 		VkPipeline skysphere;
 	} pipelines;
+
+    // View frustum for culling invisible objects
+    vks::Frustum frustum;
 
 	VkPipelineLayout pipelineLayout;
 	VkDescriptorSet descriptorSet;
@@ -238,6 +245,58 @@ public:
 			enabledFeatures.samplerAnisotropy = VK_TRUE;
 		}
 	};
+
+	void buildComputeCommandBuffers()
+	{
+		VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
+
+		VK_CHECK_RESULT(vkBeginCommandBuffer(computeCommandBuffer, &cmdBufInfo));
+
+		// Add memory barrier to ensure that the indirect commands have been consumed before the compute shader updates them
+		VkBufferMemoryBarrier barrier = vks::initializers::bufferMemoryBarrier();
+		barrier.buffer = indirectCommandsBuffer.buffer;
+		barrier.size = indirectCommandsBuffer.descriptor.range;
+		barrier.srcAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+		barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+		barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
+		barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
+
+		vkCmdPipelineBarrier(computeCommandBuffer,
+							 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+							 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_FLAGS_NONE,
+                             // memory barrier
+                             0, nullptr,
+                             // buffer memory barrier
+                             1, &barrier,
+                             // image memory barrier
+							 0, nullptr);
+
+		vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
+		vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescriptorSet, 0, nullptr);
+		vkCmdDispatch(computeCommandBuffer, objectCount / 16, 1, 1);
+
+		// Add memory barrier to ensure that the compute shader has finished writing the indirect command buffer before it's consumed
+        barrier.buffer = indirectCommandsBuffer.buffer;
+        barrier.size = indirectCommandsBuffer.descriptor.range;
+		barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+		barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
+		barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
+
+		vkCmdPipelineBarrier(computeCommandBuffer,
+							 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+							 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+							 VK_FLAGS_NONE,
+							 // memory barrier
+							 0, nullptr,
+							 // buffer memory barrier
+							 1, nullptr,
+							 // image memory barrier
+							 0, nullptr);
+
+		VK_CHECK_RESULT(vkEndCommandBuffer(computeCommandBuffer));
+	}
 
 	void buildCommandBuffers()
 	{
@@ -516,7 +575,6 @@ public:
             vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(RenderInstanceData, transRow1)),
             vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(RenderInstanceData, transRow2)),
             vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow3, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(RenderInstanceData, transRow3)),
-            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTexIndex, VK_FORMAT_R32_SINT, offsetof(RenderInstanceData, materialIndex)),		
             vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::primitiveIndex, VK_FORMAT_R32_SINT, offsetof(RenderInstanceData, primIndex)),
 		};
 		inputState.pVertexBindingDescriptions = bindingDescriptions.data();
@@ -553,26 +611,23 @@ public:
 	void prepareDrawData()
 	{
 		indirectCommands.clear();
+		indirectCommands.resize(objectCount);
 
 		uint32_t insCount = 0;
+		indirectDrawCount = 0;
 		for ( auto& prim : gameScene.primitives )
 		{
 			const vkglTF::Mesh* mesh = models.plants.nodes[prim.meshIndex]->mesh;
-			VkDrawIndexedIndirectCommand indirectCmd;
+			VkDrawIndexedIndirectCommand& indirectCmd = indirectCommands[indirectDrawCount];
 			indirectCmd.instanceCount = (uint32_t)prim.instances.size();
             indirectCmd.firstInstance = insCount;
             indirectCmd.firstIndex = mesh->primitives[0]->firstIndex;
             indirectCmd.indexCount = mesh->primitives[0]->indexCount;
 			indirectCmd.vertexOffset = 0;
-			
-			indirectCommands.push_back(indirectCmd);
 
 			insCount += indirectCmd.instanceCount;
+			indirectDrawCount++;
 		}
-
-        indirectDrawCount = static_cast<uint32_t>(indirectCommands.size());
-		objectCount = insCount;
-
 
         vks::Buffer stagingBuffer;
         VK_CHECK_RESULT(vulkanDevice->createBuffer(
@@ -638,6 +693,7 @@ public:
 
     void prepareGameData()
     {
+		objectCount = 0;
         gameScene.primitives.resize(PRIMITIVE_COUNT);
         for ( size_t primIdx = 0; primIdx < gameScene.primitives.size(); primIdx++ )
         {
@@ -661,6 +717,8 @@ public:
                 const glm::vec3 pos = glm::vec3(sin(phi) * cos(theta), 0.0f, cos(phi)) * PLANT_RADIUS;
                 glm::mat4 insTransform = glm::translate(glm::mat4(1.0f), pos);
                 instance.transform = insTransform;
+
+				objectCount++;
             }
         }
     }
@@ -673,11 +731,18 @@ public:
         size_t totalInstanceCount = 0;
 		for ( size_t primIdx = 0; primIdx < primitives.size(); primIdx++ )
 		{
-			primitives[primIdx].cullDistance = CULL_DISTANCE;
-            primitives[primIdx].transform = gameScene.primitives[primIdx].transform;
-            totalInstanceCount += gameScene.primitives[primIdx].instances.size();
-		}
+			RenderPrimitiveData& rPrim = primitives[primIdx];
+			GamePrimitive& gPrim = gameScene.primitives[primIdx];
+            const vkglTF::Mesh* mesh = models.plants.nodes[gPrim.meshIndex]->mesh;
 
+			rPrim.cullDistance = CULL_DISTANCE;
+            rPrim.transform = gPrim.transform;
+            rPrim.firstIndex = mesh->primitives[0]->firstIndex;
+            rPrim.firstIndex = mesh->primitives[0]->indexCount;
+			rPrim.materialIndex = gPrim.materialIndex;
+
+            totalInstanceCount += gPrim.instances.size();
+		}
 
         std::vector<RenderInstanceData> instanceData;
         instanceData.resize(totalInstanceCount);
@@ -694,7 +759,6 @@ public:
                 rins.transRow1 = { gins.transform[0][1], gins.transform[1][1], gins.transform[2][1], gins.transform[3][1] };
                 rins.transRow2 = { gins.transform[0][2], gins.transform[1][2], gins.transform[2][2], gins.transform[3][2] };
                 rins.transRow3 = { gins.transform[0][3], gins.transform[1][3], gins.transform[2][3], gins.transform[3][3] };
-				rins.materialIndex = gprim.materialIndex;
                 rins.primIndex = (uint32_t)primIdx;
 
 				rinsIdx++;
@@ -745,7 +809,7 @@ public:
 			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			&uniformData.scene,
-			sizeof(uboVS)));
+			sizeof(renderScene)));
 
 		VK_CHECK_RESULT(uniformData.scene.map());
 
@@ -756,11 +820,14 @@ public:
 	{
 		if (viewChanged)
 		{
-			uboVS.projection = camera.matrices.perspective;
-			uboVS.view = camera.matrices.view;
+			renderScene.projection = camera.matrices.perspective;
+			renderScene.view = camera.matrices.view;
+			renderScene.cameraPos = glm::vec4(camera.position, 1.0f) * -1.0f;
+			frustum.update(renderScene.projection * renderScene.view);
+			memcpy(renderScene.frustumPlanes, frustum.planes.data(), sizeof(glm::vec4) * 6);
 		}
 
-		memcpy(uniformData.scene.mapped, &uboVS, sizeof(uboVS));
+		memcpy(uniformData.scene.mapped, &renderScene, sizeof(renderScene));
 	}
 
 	void draw()
@@ -770,12 +837,40 @@ public:
 		vkWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
 		vkResetFences(device, 1, &computeFence);
 
-		// Command buffer to be submitted to the queue
-		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &drawCmdBuffers[currentBuffer];
+		// submit compute commands
+        {
+            VkSubmitInfo computeSubmitInfo = vks::initializers::submitInfo();
+            computeSubmitInfo.commandBufferCount = 1;
+            computeSubmitInfo.pCommandBuffers = &computeCommandBuffer;
+            computeSubmitInfo.signalSemaphoreCount = 1;
+            computeSubmitInfo.pSignalSemaphores = &computeSemaphore;
 
-		// Submit to queue
-		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, computeFence));
+            VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &computeSubmitInfo, VK_NULL_HANDLE));
+		}
+		
+		// submit graphics commands
+		{
+			std::array<VkPipelineStageFlags, 2> stageFlags = {
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			};
+
+            std::array<VkSemaphore, 2> semaphoresToWait = {
+                semaphores.presentComplete,
+				computeSemaphore,
+			};
+
+            // Command buffer to be submitted to the queue
+            submitInfo.commandBufferCount = 1;
+            submitInfo.pCommandBuffers = &drawCmdBuffers[currentBuffer];
+			submitInfo.waitSemaphoreCount = (uint32_t)semaphoresToWait.size();
+			submitInfo.pWaitSemaphores = semaphoresToWait.data();
+			submitInfo.pWaitDstStageMask = stageFlags.data();
+
+            // Submit to queue
+            VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, computeFence));
+		}
+		
 
 		VulkanExampleBase::submitFrame();
 	}
@@ -794,6 +889,7 @@ public:
 		preparePipelines();
 		setupDescriptorPool();
 		setupDescriptorSet();
+		buildComputeCommandBuffers();
 		buildCommandBuffers();
 		prepared = true;
 	}
