@@ -76,7 +76,7 @@ enum class EComputeBinding : uint32_t
 {
 	Instances,
 	OutDrawCommands,
-	View,
+	Scene,
 	//OutStat,
 	//LODs,
 	Primitives
@@ -205,6 +205,8 @@ public:
 		camera.setRotation(glm::vec3(-12.0f, 159.0f, 0.0f));
 		camera.setTranslation(glm::vec3(0.4f, 1.25f, 0.0f));
 		camera.movementSpeed = 5.0f;
+
+		this->settings.validation = true;
 	}
 
 	~VulkanExample()
@@ -291,7 +293,7 @@ public:
 							 // memory barrier
 							 0, nullptr,
 							 // buffer memory barrier
-							 1, nullptr,
+							 1, &barrier,
 							 // image memory barrier
 							 0, nullptr);
 
@@ -395,7 +397,7 @@ public:
 		std::vector<VkDescriptorPoolSize> poolSizes = {
 			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1),
 			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2),
-			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1),
+			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2),
 		};
 
 		VkDescriptorPoolCreateInfo descriptorPoolInfo = vks::initializers::descriptorPoolCreateInfo(poolSizes, 2);
@@ -429,7 +431,10 @@ public:
 		// compute pipeline
 		{
             std::vector<VkDescriptorSetLayoutBinding> computeSetLayoutBindings = {
-                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0),
+                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, (uint32_t)EComputeBinding::Instances),
+                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, (uint32_t)EComputeBinding::OutDrawCommands),
+                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, (uint32_t)EComputeBinding::Scene),
+                vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, (uint32_t)EComputeBinding::Primitives),
             };
 
 			VkDescriptorSetLayoutCreateInfo createInfo = vks::initializers::descriptorSetLayoutCreateInfo(computeSetLayoutBindings);
@@ -463,10 +468,11 @@ public:
 		
 		{
 			VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &computeDescriptorSetLayout, 1);
+			VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &computeDescriptorSet));
             std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
                 vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (uint32_t)EComputeBinding::Instances, &instanceBuffer.descriptor),
                 vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (uint32_t)EComputeBinding::OutDrawCommands, &indirectCommandsBuffer.descriptor),
-                vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, (uint32_t)EComputeBinding::View, &uniformData.scene.descriptor),
+                vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, (uint32_t)EComputeBinding::Scene, &uniformData.scene.descriptor),
                 vks::initializers::writeDescriptorSet(computeDescriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (uint32_t)EComputeBinding::Primitives, &uniformData.primitives.descriptor),
 			};
 			vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
