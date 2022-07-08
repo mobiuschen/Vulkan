@@ -25,7 +25,7 @@
 
 #define VERTEX_BUFFER_BIND_ID 0
 #define INSTANCE_BUFFER_BIND_ID 1
-#define ENABLE_VALIDATION false
+#define ENABLE_VALIDATION true
 
 // Number of instances per object
 //#if defined(__ANDROID__)
@@ -60,7 +60,10 @@ enum EAttrLocation : uint32_t
 	instanceTransformRow1,
 	instanceTransformRow2,
 	instanceTransformRow3,
-	primitiveIndex
+    primitiveIndex,
+    pad0,
+    pad1,
+    pad2,
 };
 
 enum ERenderBinding: uint32_t
@@ -77,8 +80,6 @@ enum class EComputeBinding : uint32_t
 	Instances,
 	OutDrawCommands,
 	Scene,
-	//OutStat,
-	//LODs,
 	Primitives
 };
 
@@ -122,9 +123,9 @@ public:
 		glm::vec4 transRow2;
 		glm::vec4 transRow3;
         uint32_t primIndex = 0;
-        float _pad0;
-        float _pad1;
-        float _pad2;
+		uint32_t _pad0;
+		uint32_t _pad1;
+		uint32_t _pad2;
 	};
 
 	struct Material {
@@ -177,6 +178,7 @@ public:
 	VkDescriptorSet descriptorSet;
 	VkDescriptorSetLayout descriptorSetLayout;
 
+	VkQueue computeQueue;
 	VkPipelineLayout computePipelineLayout;
 	VkDescriptorSet computeDescriptorSet;
 	VkDescriptorSetLayout computeDescriptorSetLayout;
@@ -205,8 +207,6 @@ public:
 		camera.setRotation(glm::vec3(-12.0f, 159.0f, 0.0f));
 		camera.setTranslation(glm::vec3(0.4f, 1.25f, 0.0f));
 		camera.movementSpeed = 5.0f;
-
-		this->settings.validation = true;
 	}
 
 	~VulkanExample()
@@ -255,47 +255,47 @@ public:
 		VK_CHECK_RESULT(vkBeginCommandBuffer(computeCommandBuffer, &cmdBufInfo));
 
 		// Add memory barrier to ensure that the indirect commands have been consumed before the compute shader updates them
-		VkBufferMemoryBarrier barrier = vks::initializers::bufferMemoryBarrier();
-		barrier.buffer = indirectCommandsBuffer.buffer;
-		barrier.size = indirectCommandsBuffer.descriptor.range;
-		barrier.srcAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-		barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-		barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
-		barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
+		//VkBufferMemoryBarrier barrier = vks::initializers::bufferMemoryBarrier();
+		//barrier.buffer = indirectCommandsBuffer.buffer;
+		//barrier.size = indirectCommandsBuffer.descriptor.range;
+		//barrier.srcAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+		//barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+		//barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
+		//barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
 
-		vkCmdPipelineBarrier(computeCommandBuffer,
-							 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-							 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             VK_FLAGS_NONE,
-                             // memory barrier
-                             0, nullptr,
-                             // buffer memory barrier
-                             1, &barrier,
-                             // image memory barrier
-							 0, nullptr);
+		//vkCmdPipelineBarrier(computeCommandBuffer,
+		//					 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+		//					 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+  //                           VK_FLAGS_NONE,
+  //                           // memory barrier
+  //                           0, nullptr,
+  //                           // buffer memory barrier
+  //                           1, &barrier,
+  //                           // image memory barrier
+		//					 0, nullptr);
 
 		vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
 		vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescriptorSet, 0, nullptr);
 		vkCmdDispatch(computeCommandBuffer, objectCount / 16, 1, 1);
 
 		// Add memory barrier to ensure that the compute shader has finished writing the indirect command buffer before it's consumed
-        barrier.buffer = indirectCommandsBuffer.buffer;
-        barrier.size = indirectCommandsBuffer.descriptor.range;
-		barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-		barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-		barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
-		barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
+  //      barrier.buffer = indirectCommandsBuffer.buffer;
+  //      barrier.size = indirectCommandsBuffer.descriptor.range;
+		//barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+		//barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+		//barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
+		//barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
 
-		vkCmdPipelineBarrier(computeCommandBuffer,
-							 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-							 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-							 VK_FLAGS_NONE,
-							 // memory barrier
-							 0, nullptr,
-							 // buffer memory barrier
-							 1, &barrier,
-							 // image memory barrier
-							 0, nullptr);
+		//vkCmdPipelineBarrier(computeCommandBuffer,
+		//					 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		//					 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+		//					 VK_FLAGS_NONE,
+		//					 // memory barrier
+		//					 0, nullptr,
+		//					 // buffer memory barrier
+		//					 1, &barrier,
+		//					 // image memory barrier
+		//					 0, nullptr);
 
 		VK_CHECK_RESULT(vkEndCommandBuffer(computeCommandBuffer));
 	}
@@ -359,7 +359,7 @@ public:
 			else
 			{
 				// If multi draw is not available, we must issue separate draw commands
-				for (auto j = 0; j < indirectCommands.size(); j++)
+				for (size_t j = 0; j < indirectDrawCount; j++)
 				{
 					vkCmdDrawIndexedIndirect(drawCmdBuffers[i], indirectCommandsBuffer.buffer, j * sizeof(VkDrawIndexedIndirectCommand), 1, sizeof(VkDrawIndexedIndirectCommand));
 				}
@@ -395,9 +395,9 @@ public:
 	void setupDescriptorPool()
 	{
 		std::vector<VkDescriptorPoolSize> poolSizes = {
-			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1),
-			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2),
-			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2),
+			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 32),
+			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 32),
+			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 32),
 		};
 
 		VkDescriptorPoolCreateInfo descriptorPoolInfo = vks::initializers::descriptorPoolCreateInfo(poolSizes, 2);
@@ -405,7 +405,9 @@ public:
 	}
 
 	void setupDescriptorSetLayout()
-	{
+    {
+        vkGetDeviceQueue(device, vulkanDevice->queueFamilyIndices.compute, 0, &computeQueue);
+
 		// graphics pipeline
 		{
             std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings = {
@@ -582,6 +584,9 @@ public:
             vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(RenderInstanceData, transRow2)),
             vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::instanceTransformRow3, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(RenderInstanceData, transRow3)),
             vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::primitiveIndex, VK_FORMAT_R32_SINT, offsetof(RenderInstanceData, primIndex)),
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::pad0, VK_FORMAT_R32_SINT, offsetof(RenderInstanceData, _pad0)),
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::pad1, VK_FORMAT_R32_SINT, offsetof(RenderInstanceData, _pad1)),
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, EAttrLocation::pad2, VK_FORMAT_R32_SINT, offsetof(RenderInstanceData, _pad2)),
 		};
 		inputState.pVertexBindingDescriptions = bindingDescriptions.data();
 		inputState.pVertexAttributeDescriptions = attributeDescriptions.data();
@@ -644,7 +649,7 @@ public:
             indirectCommands.data()));
 
         VK_CHECK_RESULT(vulkanDevice->createBuffer(
-            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             &indirectCommandsBuffer,
             stagingBuffer.size));
@@ -744,7 +749,7 @@ public:
 			rPrim.cullDistance = CULL_DISTANCE;
             rPrim.transform = gPrim.transform;
             rPrim.firstIndex = mesh->primitives[0]->firstIndex;
-            rPrim.firstIndex = mesh->primitives[0]->indexCount;
+            rPrim.indexCount = mesh->primitives[0]->indexCount;
 			rPrim.materialIndex = gPrim.materialIndex;
 
             totalInstanceCount += gPrim.instances.size();
@@ -766,6 +771,9 @@ public:
                 rins.transRow2 = { gins.transform[0][2], gins.transform[1][2], gins.transform[2][2], gins.transform[3][2] };
                 rins.transRow3 = { gins.transform[0][3], gins.transform[1][3], gins.transform[2][3], gins.transform[3][3] };
                 rins.primIndex = (uint32_t)primIdx;
+                rins._pad0 = 0;
+                rins._pad1 = 1;
+                rins._pad2 = 2;
 
 				rinsIdx++;
 			}
@@ -781,7 +789,7 @@ public:
 		));
 
 		VK_CHECK_RESULT(vulkanDevice->createBuffer(
-			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			&uniformData.primitives,
 			stagingBuffer.size
@@ -799,7 +807,7 @@ public:
             instanceData.data()));
 
         VK_CHECK_RESULT(vulkanDevice->createBuffer(
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             &instanceBuffer,
             stagingBuffer.size));
@@ -851,7 +859,7 @@ public:
             computeSubmitInfo.signalSemaphoreCount = 1;
             computeSubmitInfo.pSignalSemaphores = &computeSemaphore;
 
-            VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &computeSubmitInfo, VK_NULL_HANDLE));
+            VK_CHECK_RESULT(vkQueueSubmit(computeQueue, 1, &computeSubmitInfo, VK_NULL_HANDLE));
 		}
 		
 		// submit graphics commands

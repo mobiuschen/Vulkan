@@ -11,26 +11,30 @@ struct VSInput
 [[vk::location(5)]] float4 instanceMatRow1 : TEXCOORD2;
 [[vk::location(6)]] float4 instanceMatRow2 : TEXCOORD3;
 [[vk::location(7)]] float4 instanceMatRow3 : TEXCOORD4;
-[[vk::location(8)]] int instanceMaterialIndex : TEXCOORD5;
-[[vk::location(9)]] int primitiveIndex : TEXCOORD6;
+[[vk::location(8)]] int primitiveIndex : TEXCOORD5;
+[[vk::location(9)]] uint _pad0: TEXCOORD6;
+[[vk::location(10)]] uint _pad1: TEXCOORD7;
+[[vk::location(11)]] uint _pad2: TEXCOORD8;
 };
 
-struct UBO
+struct Scene
 {
 	float4x4 projection;
 	float4x4 modelview;
+	float4 cameraPos;
+	float4 frustumPlanes[6];
 };
 
 struct PrimitiveData
 {
     float4x4 transform;
     float cullDistance;
-	float padding0;
-	float padding1;
-	float padding2;
+    uint firstIndex;
+	uint indexCount;
+	uint materialIndex;
 };
 
-cbuffer ubo : register(b0) { UBO ubo; }
+cbuffer scene : register(b0) { Scene scene; }
 
 
 StructuredBuffer<PrimitiveData> primitiveData : register(t3);
@@ -64,12 +68,12 @@ VSOutput main(VSInput input)
 	output.Normal = mul((float4x3)instanceMat, input.Normal).xyz;	
 	// float4 pos = mul(rotMat, float4((input.Pos.xyz * input.instanceScale) + input.instancePos, 1.0));
 	float4 pos = mul(ins2PrimMat, float4(input.Pos.xyz, 1.0));
-	output.Pos = mul(ubo.projection, mul(ubo.modelview, pos));
+	output.Pos = mul(scene.projection, mul(scene.modelview, pos));
 
-	float4 wPos = mul(ubo.modelview, float4(pos.xyz, 1.0));
+	float4 wPos = mul(scene.modelview, float4(pos.xyz, 1.0));
 	float4 lPos = float4(0.0, -5.0, 0.0, 1.0);
 	output.LightVec = lPos.xyz - pos.xyz;
 	output.ViewVec = -pos.xyz;
-	output.MaterialIndex = input.instanceMaterialIndex;
+	output.MaterialIndex = primitiveData[input.primitiveIndex].materialIndex;
 	return output;
 }
