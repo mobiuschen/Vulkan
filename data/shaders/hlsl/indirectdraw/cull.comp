@@ -92,8 +92,8 @@ void main(uint3 GlobalInvocationID : SV_DispatchThreadID )
 	insMat[2] = instances[idx].transRow2;
 	insMat[3] = instances[idx].transRow3;
 	float4x4 primMat = primitives[primIdx].transform;
-	float4x3 worldMat = mul(primMat, insMat);
-	float4 pos = mul(worldMat[3], float4(0,0,0,1));
+	float4x4 worldMat = mul(primMat, insMat);
+	float4 pos = mul(worldMat, float4(0.0,0.0,0.0,1.0));
 	float cullDistance = primitives[primIdx].cullDistance;
 	uint firstIndex = primitives[primIdx].firstIndex;
 	uint indexCount = primitives[primIdx].indexCount;
@@ -101,9 +101,9 @@ void main(uint3 GlobalInvocationID : SV_DispatchThreadID )
 	indirectDraws[idx].firstIndex = firstIndex;
 	indirectDraws[idx].indexCount = indexCount;
 	indirectDraws[idx].vertexOffset = 0;
-	indirectDraws[idx].firstInstance = 0;
+	indirectDraws[idx].firstInstance = idx;
 	// Check if object is within current viewing frustum
-	if (frustumCheck(pos, 0.0) || distance(pos.xyz, view.cameraPos.xyz) < cullDistance)
+	if (frustumCheck(pos, 0.0) && distance(pos.xyz, view.cameraPos.xyz) < cullDistance)
 	{
 		indirectDraws[idx].instanceCount = 1;
 	}

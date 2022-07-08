@@ -12,9 +12,9 @@ struct VSInput
 [[vk::location(6)]] float4 instanceMatRow2 : TEXCOORD3;
 [[vk::location(7)]] float4 instanceMatRow3 : TEXCOORD4;
 [[vk::location(8)]] int primitiveIndex : TEXCOORD5;
-[[vk::location(9)]] uint _pad0: TEXCOORD6;
-[[vk::location(10)]] uint _pad1: TEXCOORD7;
-[[vk::location(11)]] uint _pad2: TEXCOORD8;
+[[vk::location(9)]] int _pad0: TEXCOORD6;
+[[vk::location(10)]] int _pad1: TEXCOORD7;
+[[vk::location(11)]] int _pad2: TEXCOORD8;
 };
 
 struct Scene

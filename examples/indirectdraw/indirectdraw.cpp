@@ -48,7 +48,7 @@ static const uint32_t PRIMITIVE_COUNT = 32;
 static const uint32_t PRIMITIVE_COUNT_BORDER = 4;
 static const uint32_t OBJECT_INSTANCE_COUNT = INSTANCE_PER_PRIM_PER_MESH * PRIMITIVE_COUNT;
 static const float PRIM_GAP = 5.0f;
-static const float CULL_DISTANCE = 100.0f;
+static const float CULL_DISTANCE = 30.0f;
 
 enum EAttrLocation : uint32_t
 {
@@ -122,10 +122,10 @@ public:
 		glm::vec4 transRow1;
 		glm::vec4 transRow2;
 		glm::vec4 transRow3;
-        uint32_t primIndex = 0;
-		uint32_t _pad0;
-		uint32_t _pad1;
-		uint32_t _pad2;
+        int primIndex;
+		int _pad0;
+		int _pad1;
+		int _pad2;
 	};
 
 	struct Material {
@@ -624,20 +624,21 @@ public:
 		indirectCommands.clear();
 		indirectCommands.resize(objectCount);
 
-		uint32_t insCount = 0;
 		indirectDrawCount = 0;
 		for ( auto& prim : gameScene.primitives )
-		{
-			const vkglTF::Mesh* mesh = models.plants.nodes[prim.meshIndex]->mesh;
-			VkDrawIndexedIndirectCommand& indirectCmd = indirectCommands[indirectDrawCount];
-			indirectCmd.instanceCount = (uint32_t)prim.instances.size();
-            indirectCmd.firstInstance = insCount;
-            indirectCmd.firstIndex = mesh->primitives[0]->firstIndex;
-            indirectCmd.indexCount = mesh->primitives[0]->indexCount;
-			indirectCmd.vertexOffset = 0;
+        {
+            const vkglTF::Mesh* mesh = models.plants.nodes[prim.meshIndex]->mesh;
+			for ( size_t insIdx = 0; insIdx < prim.instances.size(); insIdx++ )
+            {
+                VkDrawIndexedIndirectCommand& indirectCmd = indirectCommands[indirectDrawCount];
+                indirectCmd.instanceCount = 0;
+                indirectCmd.firstInstance = indirectDrawCount;
+                indirectCmd.firstIndex = mesh->primitives[0]->firstIndex;
+                indirectCmd.indexCount = mesh->primitives[0]->indexCount;
+                indirectCmd.vertexOffset = 0;
 
-			insCount += indirectCmd.instanceCount;
-			indirectDrawCount++;
+				indirectDrawCount++;
+			}
 		}
 
         vks::Buffer stagingBuffer;
@@ -770,10 +771,10 @@ public:
                 rins.transRow1 = { gins.transform[0][1], gins.transform[1][1], gins.transform[2][1], gins.transform[3][1] };
                 rins.transRow2 = { gins.transform[0][2], gins.transform[1][2], gins.transform[2][2], gins.transform[3][2] };
                 rins.transRow3 = { gins.transform[0][3], gins.transform[1][3], gins.transform[2][3], gins.transform[3][3] };
-                rins.primIndex = (uint32_t)primIdx;
-                rins._pad0 = 0;
-                rins._pad1 = 1;
-                rins._pad2 = 2;
+                rins.primIndex = (int)primIdx;
+                rins._pad0 = (int)primIdx * 1;
+                rins._pad1 = (int)primIdx * 2;
+                rins._pad2 = (int)primIdx * 3;
 
 				rinsIdx++;
 			}
