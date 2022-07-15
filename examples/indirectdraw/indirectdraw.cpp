@@ -255,47 +255,47 @@ public:
 		VK_CHECK_RESULT(vkBeginCommandBuffer(computeCommandBuffer, &cmdBufInfo));
 
 		// Add memory barrier to ensure that the indirect commands have been consumed before the compute shader updates them
-		//VkBufferMemoryBarrier barrier = vks::initializers::bufferMemoryBarrier();
-		//barrier.buffer = indirectCommandsBuffer.buffer;
-		//barrier.size = indirectCommandsBuffer.descriptor.range;
-		//barrier.srcAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-		//barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-		//barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
-		//barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
+		VkBufferMemoryBarrier barrier = vks::initializers::bufferMemoryBarrier();
+		barrier.buffer = indirectCommandsBuffer.buffer;
+		barrier.size = indirectCommandsBuffer.descriptor.range;
+		barrier.srcAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+		barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
+		barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
 
-		//vkCmdPipelineBarrier(computeCommandBuffer,
-		//					 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-		//					 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-  //                           VK_FLAGS_NONE,
-  //                           // memory barrier
-  //                           0, nullptr,
-  //                           // buffer memory barrier
-  //                           1, &barrier,
-  //                           // image memory barrier
-		//					 0, nullptr);
+		vkCmdPipelineBarrier(computeCommandBuffer,
+							 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+							 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_FLAGS_NONE,
+                             // memory barrier
+                             0, nullptr,
+                             // buffer memory barrier
+                             1, &barrier,
+                             // image memory barrier
+							 0, nullptr);
 
 		vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
 		vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescriptorSet, 0, nullptr);
 		vkCmdDispatch(computeCommandBuffer, objectCount / 16, 1, 1);
 
 		// Add memory barrier to ensure that the compute shader has finished writing the indirect command buffer before it's consumed
-  //      barrier.buffer = indirectCommandsBuffer.buffer;
-  //      barrier.size = indirectCommandsBuffer.descriptor.range;
-		//barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-		//barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-		//barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
-		//barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
+        barrier.buffer = indirectCommandsBuffer.buffer;
+        barrier.size = indirectCommandsBuffer.descriptor.range;
+		barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+		barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
+		barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
 
-		//vkCmdPipelineBarrier(computeCommandBuffer,
-		//					 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-		//					 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-		//					 VK_FLAGS_NONE,
-		//					 // memory barrier
-		//					 0, nullptr,
-		//					 // buffer memory barrier
-		//					 1, &barrier,
-		//					 // image memory barrier
-		//					 0, nullptr);
+		vkCmdPipelineBarrier(computeCommandBuffer,
+							 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+							 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+							 VK_FLAGS_NONE,
+							 // memory barrier
+							 0, nullptr,
+							 // buffer memory barrier
+							 1, &barrier,
+							 // image memory barrier
+							 0, nullptr);
 
 		VK_CHECK_RESULT(vkEndCommandBuffer(computeCommandBuffer));
 	}
@@ -321,6 +321,25 @@ public:
 			renderPassBeginInfo.framebuffer = frameBuffers[i];
 
 			VK_CHECK_RESULT(vkBeginCommandBuffer(drawCmdBuffers[i], &cmdBufInfo));
+
+			{
+				VkBufferMemoryBarrier barrier = vks::initializers::bufferMemoryBarrier();
+				barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+                barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+                barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
+				barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
+				barrier.buffer = indirectCommandsBuffer.buffer;
+				barrier.offset = 0;
+				barrier.size = indirectCommandsBuffer.descriptor.range;
+
+				vkCmdPipelineBarrier(drawCmdBuffers[i],
+									 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+									 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+									 0,
+									 0, nullptr,
+									 0, &barrier,
+									 0, nullptr);
+			}
 
 			vkCmdBeginRenderPass(drawCmdBuffers[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -368,6 +387,25 @@ public:
 			drawUI(drawCmdBuffers[i]);
 
 			vkCmdEndRenderPass(drawCmdBuffers[i]);
+
+            {
+                VkBufferMemoryBarrier barrier = vks::initializers::bufferMemoryBarrier();
+                barrier.srcAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+                barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+                barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
+                barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
+                barrier.buffer = indirectCommandsBuffer.buffer;
+                barrier.offset = 0;
+                barrier.size = indirectCommandsBuffer.descriptor.range;
+
+                vkCmdPipelineBarrier(drawCmdBuffers[i],
+									 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+									 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                     0,
+                                     0, nullptr,
+                                     0, &barrier,
+                                     0, nullptr);
+            }
 
 			VK_CHECK_RESULT(vkEndCommandBuffer(drawCmdBuffers[i]));
 		}
