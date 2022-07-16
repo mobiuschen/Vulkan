@@ -254,49 +254,55 @@ public:
 
 		VK_CHECK_RESULT(vkBeginCommandBuffer(computeCommandBuffer, &cmdBufInfo));
 
-		// Add memory barrier to ensure that the indirect commands have been consumed before the compute shader updates them
-		VkBufferMemoryBarrier barrier = vks::initializers::bufferMemoryBarrier();
-		barrier.buffer = indirectCommandsBuffer.buffer;
-		barrier.size = indirectCommandsBuffer.descriptor.range;
-		barrier.srcAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-		barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
-		barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
+		{
+			// acquire queue ownership of buffer
+            VkBufferMemoryBarrier barrier = vks::initializers::bufferMemoryBarrier();
+            barrier.buffer = indirectCommandsBuffer.buffer;
+            barrier.size = indirectCommandsBuffer.descriptor.range;
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+            barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
+            barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
 
-		vkCmdPipelineBarrier(computeCommandBuffer,
-							 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-							 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                             VK_FLAGS_NONE,
-                             // memory barrier
-                             0, nullptr,
-                             // buffer memory barrier
-                             1, &barrier,
-                             // image memory barrier
-							 0, nullptr);
+            vkCmdPipelineBarrier(computeCommandBuffer,
+                                 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                 VK_FLAGS_NONE,
+                                 // memory barrier
+                                 0, nullptr,
+                                 // buffer memory barrier
+                                 1, &barrier,
+                                 // image memory barrier
+                                 0, nullptr);
+		}
+		
 
 		vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
 		vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescriptorSet, 0, nullptr);
 		vkCmdDispatch(computeCommandBuffer, objectCount / 16, 1, 1);
 
-		// Add memory barrier to ensure that the compute shader has finished writing the indirect command buffer before it's consumed
-        barrier.buffer = indirectCommandsBuffer.buffer;
-        barrier.size = indirectCommandsBuffer.descriptor.range;
-		barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-		barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-		barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
-		barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
+		{
+			// release queue ownership of buffer
+			VkBufferMemoryBarrier barrier = vks::initializers::bufferMemoryBarrier();
+            barrier.buffer = indirectCommandsBuffer.buffer;
+            barrier.size = indirectCommandsBuffer.descriptor.range;
+            barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+            barrier.dstAccessMask = 0;
+            barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
+            barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
 
-		vkCmdPipelineBarrier(computeCommandBuffer,
-							 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-							 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
-							 VK_FLAGS_NONE,
-							 // memory barrier
-							 0, nullptr,
-							 // buffer memory barrier
-							 1, &barrier,
-							 // image memory barrier
-							 0, nullptr);
-
+            vkCmdPipelineBarrier(computeCommandBuffer,
+                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                                 VK_FLAGS_NONE,
+                                 // memory barrier
+                                 0, nullptr,
+                                 // buffer memory barrier
+                                 1, &barrier,
+                                 // image memory barrier
+                                 0, nullptr);
+		}
+		
 		VK_CHECK_RESULT(vkEndCommandBuffer(computeCommandBuffer));
 	}
 
@@ -323,8 +329,9 @@ public:
 			VK_CHECK_RESULT(vkBeginCommandBuffer(drawCmdBuffers[i], &cmdBufInfo));
 
 			{
+				// acquire queue ownership of the buffer
 				VkBufferMemoryBarrier barrier = vks::initializers::bufferMemoryBarrier();
-				barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+				barrier.srcAccessMask = 0;
                 barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
                 barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
 				barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
@@ -337,7 +344,7 @@ public:
 									 VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
 									 0,
 									 0, nullptr,
-									 0, &barrier,
+									 1, &barrier,
 									 0, nullptr);
 			}
 
@@ -389,9 +396,10 @@ public:
 			vkCmdEndRenderPass(drawCmdBuffers[i]);
 
             {
+				// release queue ownership of the buffer
                 VkBufferMemoryBarrier barrier = vks::initializers::bufferMemoryBarrier();
                 barrier.srcAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-                barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+                barrier.dstAccessMask = 0;
                 barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
                 barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
                 barrier.buffer = indirectCommandsBuffer.buffer;
@@ -403,7 +411,7 @@ public:
 									 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                      0,
                                      0, nullptr,
-                                     0, &barrier,
+                                     1, &barrier,
                                      0, nullptr);
             }
 
@@ -696,6 +704,29 @@ public:
         vulkanDevice->copyBuffer(&stagingBuffer, &indirectCommandsBuffer, queue);
 
         stagingBuffer.destroy();
+
+		{
+			VkCommandBuffer cmdBuffer = vulkanDevice->createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
+
+			// release queue ownership of the buffer
+			VkBufferMemoryBarrier barrier = vks::initializers::bufferMemoryBarrier();
+			barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			barrier.dstAccessMask = 0;
+			barrier.srcQueueFamilyIndex = vulkanDevice->queueFamilyIndices.graphics;
+			barrier.dstQueueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
+			barrier.buffer = indirectCommandsBuffer.buffer;
+			barrier.offset = 0;
+			barrier.size = indirectCommandsBuffer.descriptor.range;
+
+			vkCmdPipelineBarrier(cmdBuffer,
+								 VK_PIPELINE_STAGE_TRANSFER_BIT,
+								 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+								 VK_FLAGS_NONE,
+								 0, nullptr,
+								 1, &barrier,
+								 0, nullptr);
+			vulkanDevice->flushCommandBuffer(cmdBuffer, queue, true);
+		}
 	}
 
 
