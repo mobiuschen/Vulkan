@@ -10,6 +10,7 @@ from datetime import datetime
 VULKAN_SDK = os.getenv('VULKAN_SDK')
 GLSLC = VULKAN_SDK + "/bin/glslc"
 HLSL_DIR = "./data/shaders/hlsl"
+GLSL_DIR = "./data/shaders/glsl"
 
 def main(argv):
     try:
@@ -36,8 +37,13 @@ def main(argv):
     print("\n")
     print("Compile {lang} shaders in project {dir}".format(lang=language, dir=proj))
     
-    dir = os.walk(HLSL_DIR)
-    for path, dirs, files in os.walk(HLSL_DIR):
+    SHADER_DIR = HLSL_DIR
+    if language == "glsl":
+        SHADER_DIR = GLSL_DIR
+    else:
+        SHADER_DIR = HLSL_DIR
+
+    for path, dirs, files in os.walk(SHADER_DIR):
         # print("files: {files}".format(files=files))
         # print("dirs: {dirs}".format(dirs=dirs))
         # print("path {path}".format(path=path))
@@ -50,7 +56,7 @@ def main(argv):
             _, ext = os.path.splitext(file)
             if ext == ".frag" or ext == ".vert" or ext == ".comp":
                 # print("compiling {path}/{path}".format(glslc=GLSLC, file=file, path=path))
-                command = "{glslc} -x hlsl {path}/{file} -o {path}/{file}.spv".format(glslc=GLSLC, file=file, path=path)
+                command = "{glslc} -x {lang} {path}/{file} -o {path}/{file}.spv".format(glslc=GLSLC, lang=language, file=file, path=path)
                 print(command)
                 os.system(command)
 
