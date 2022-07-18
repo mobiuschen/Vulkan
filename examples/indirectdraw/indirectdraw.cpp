@@ -25,7 +25,12 @@
 
 #define VERTEX_BUFFER_BIND_ID 0
 #define INSTANCE_BUFFER_BIND_ID 1
-#define ENABLE_VALIDATION true
+
+#if defined(__ANDROID__)
+	#define ENABLE_VALIDATION false
+#else
+	#define ENABLE_VALIDATION true
+#endif
 
 // Number of instances per object
 //#if defined(__ANDROID__)
