@@ -302,7 +302,7 @@ void VulkanglTFModel::loadAnimations(tinygltf::Model &input)
 
 void VulkanglTFModel::loadNode(const tinygltf::Node &inputNode, const tinygltf::Model &input, VulkanglTFModel::Node *parent, uint32_t nodeIndex, std::vector<uint32_t> &indexBuffer, std::vector<VulkanglTFModel::Vertex> &vertexBuffer)
 {
-	VulkanglTFModel::Node *node = new VulkanglTFModel::Node{};
+	VulkanglTFModel::Node *node = new VulkanglTFModel::Node();
 	node->parent                = parent;
 	node->matrix                = glm::mat4(1.0f);
 	node->index                 = nodeIndex;
