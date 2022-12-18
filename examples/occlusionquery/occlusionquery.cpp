@@ -30,12 +30,17 @@ public:
 
 	struct UBOVS {
 		glm::mat4 projection;
-		glm::mat4 view;
-		glm::mat4 model;
-		glm::vec4 color = glm::vec4(0.0f);
+        glm::mat4 modelView;
 		glm::vec4 lightPos = glm::vec4(10.0f, -10.0f, 10.0f, 1.0f);
 		float visible;
 	} uboVS;
+
+    struct MeshUBOVS {
+        glm::mat4 projection;
+        glm::mat4 modelView;
+        glm::vec4 lightPos = glm::vec4(10.0f, -10.0f, 10.0f, 1.0f);
+        float visible;
+    };
 
 	struct {
 		VkPipeline solid;
@@ -169,13 +174,13 @@ public:
 			models.plane.draw(drawCmdBuffers[i]);
 
 			// Teapot
-			vkCmdBeginQuery(drawCmdBuffers[i], queryPool, 0, VK_FLAGS_NONE);
+			vkCmdBeginQuery(drawCmdBuffers[i], queryPool, 0, VK_QUERY_CONTROL_PRECISE_BIT);
 			vkCmdBindDescriptorSets(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets.teapot, 0, NULL);
 			models.teapot.draw(drawCmdBuffers[i]);
 			vkCmdEndQuery(drawCmdBuffers[i], queryPool, 0);
 
 			// Sphere
-			vkCmdBeginQuery(drawCmdBuffers[i], queryPool, 1, VK_FLAGS_NONE);
+			vkCmdBeginQuery(drawCmdBuffers[i], queryPool, 1, VK_QUERY_CONTROL_PRECISE_BIT);
 			vkCmdBindDescriptorSets(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets.sphere, 0, NULL);
 			models.sphere.draw(drawCmdBuffers[i]);
 			vkCmdEndQuery(drawCmdBuffers[i], queryPool, 1);
@@ -410,28 +415,25 @@ public:
 	void updateUniformBuffers()
 	{
 		uboVS.projection = camera.matrices.perspective;
-		uboVS.view = camera.matrices.view;
 
 		uint8_t *pData;
 		// Occluder
-		uboVS.visible = 1.0f;
-		uboVS.model = glm::scale(glm::mat4(1.0f), glm::vec3(6.0f));
-		uboVS.color = glm::vec4(0.0f, 0.0f, 1.0f, 0.5f);
+		uboVS.modelView = camera.matrices.view * glm::scale(glm::mat4(1.0f), glm::vec3(6.0f));
 		memcpy(uniformBuffers.occluder.mapped, &uboVS, sizeof(uboVS));
 
+		MeshUBOVS meshUboVs;
+		meshUboVs.projection = camera.matrices.perspective;
 		// Teapot
-		// Toggle color depending on visibility
-		uboVS.visible = (passedSamples[0] > 0) ? 1.0f : 0.0f;
-		uboVS.model = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -3.0f));
-		uboVS.color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
-		memcpy(uniformBuffers.teapot.mapped, &uboVS, sizeof(uboVS));
+        // Toggle color depending on visibility
+		meshUboVs.visible = (passedSamples[0] > 0) ? 1.0f : 0.0f;
+		meshUboVs.modelView = camera.matrices.view * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -3.0f));
+		memcpy(uniformBuffers.teapot.mapped, &meshUboVs, sizeof(meshUboVs));
 
 		// Sphere
 		// Toggle color depending on visibility
-		uboVS.visible = (passedSamples[1] > 0) ? 1.0f : 0.0f;
-		uboVS.model = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 3.0f));
-		uboVS.color = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
-		memcpy(uniformBuffers.sphere.mapped, &uboVS, sizeof(uboVS));
+		meshUboVs.visible = (passedSamples[1] > 0) ? 1.0f : 0.0f;
+		meshUboVs.modelView = camera.matrices.view * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 3.0f));
+		memcpy(uniformBuffers.sphere.mapped, &meshUboVs, sizeof(meshUboVs));
 	}
 
 	void prepare()
