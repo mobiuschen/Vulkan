@@ -82,6 +82,10 @@
 #   include "../examples/negativeviewportheight/negativeviewportheight.cpp"
 #endif
 
+#ifdef MVK_noodlebatch
+#   include "../examples/noodlebatch/noodlebatch.cpp"
+#endif
+
 #ifdef MVK_pushconstants
 #   include "../examples/pushconstants/pushconstants.cpp"
 #endif

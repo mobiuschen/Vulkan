@@ -116,7 +116,8 @@ set(EXAMPLES
 	multisampling
 	multithreading
 	multiview
-	negativeviewportheight	
+	negativeviewportheight
+	noodlebatch
 	occlusionquery
 	offscreen
 	oit
