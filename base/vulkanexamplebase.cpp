@@ -1015,8 +1015,20 @@ bool VulkanExampleBase::initVulkan()
 	}
 #endif
 
+	int matchIndex = -1;
+	for ( size_t i = 0; i < physicalDevices.size(); i++ )
+	{
+		VkPhysicalDevice phyDevice = physicalDevices[i];
+        VkPhysicalDeviceProperties properties;
+        vkGetPhysicalDeviceProperties(phyDevice, &properties);
+		if ( properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU )
+		{
+			matchIndex = (int)i;
+			break;
+		}
+	}
+	selectedDevice = std::max(0, matchIndex);
 	physicalDevice = physicalDevices[selectedDevice];
-
 	// Store properties (including limits), features and memory properties of the physical device (so that examples can check against them)
 	vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
 	vkGetPhysicalDeviceFeatures(physicalDevice, &deviceFeatures);
