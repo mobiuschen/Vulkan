@@ -84,6 +84,12 @@ public:
 	VkDescriptorSet descriptorSet;
 	VkDescriptorSetLayout descriptorSetLayout;
 
+    VkQueryPool queryPool;
+
+    // Vector for storing pipeline statistics results
+    std::vector<uint64_t> pipelineStats;
+    std::vector<std::string> pipelineStatNames;
+
 	VkSampler samplerRepeat;
 
 	uint32_t objectCount = 0;
@@ -113,6 +119,7 @@ public:
 		instanceBuffer.destroy();
 		indirectCommandsBuffer.destroy();
 		uniformData.scene.destroy();
+        vkDestroyQueryPool(device, queryPool, nullptr);
 	}
 
 	// Enable physical device features required for this example
@@ -150,13 +157,19 @@ public:
 
 			VK_CHECK_RESULT(vkBeginCommandBuffer(drawCmdBuffers[i], &cmdBufInfo));
 
+            // Reset timestamp query pool
+            vkCmdResetQueryPool(drawCmdBuffers[i], queryPool, 0, static_cast<uint32_t>(pipelineStats.size()));
+
 			vkCmdBeginRenderPass(drawCmdBuffers[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 			VkViewport viewport = vks::initializers::viewport((float)width, (float)height, 0.0f, 1.0f);
 			vkCmdSetViewport(drawCmdBuffers[i], 0, 1, &viewport);
 
 			VkRect2D scissor = vks::initializers::rect2D(width, height, 0, 0);
-			vkCmdSetScissor(drawCmdBuffers[i], 0, 1, &scissor);
+            vkCmdSetScissor(drawCmdBuffers[i], 0, 1, &scissor);
+
+            // Start capture of pipeline statistics
+            vkCmdBeginQuery(drawCmdBuffers[i], queryPool, 0, 0);
 
 			VkDeviceSize offsets[1] = { 0 };
 			vkCmdBindDescriptorSets(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, NULL);
@@ -191,7 +204,10 @@ public:
 				{
 					vkCmdDrawIndexedIndirect(drawCmdBuffers[i], indirectCommandsBuffer.buffer, j * sizeof(VkDrawIndexedIndirectCommand), 1, sizeof(VkDrawIndexedIndirectCommand));
 				}
-			}
+            }
+
+            // End capture of pipeline statistics
+            vkCmdEndQuery(drawCmdBuffers[i], queryPool, 0);
 
 			drawUI(drawCmdBuffers[i]);
 
@@ -210,6 +226,61 @@ public:
 		textures.plants.loadFromFile(getAssetPath() + "textures/texturearray_plants_rgba.ktx", VK_FORMAT_R8G8B8A8_UNORM, vulkanDevice, queue);
 		textures.ground.loadFromFile(getAssetPath() + "textures/ground_dry_rgba.ktx", VK_FORMAT_R8G8B8A8_UNORM, vulkanDevice, queue);
 	}
+
+    // Setup a query pool for storing pipeline statistics
+    void setupQueryPool()
+    {
+        pipelineStatNames = {
+            "Input assembly vertex count        ",
+            "Input assembly primitives count    ",
+            "Vertex shader invocations          ",
+            "Clipping stage primitives processed",
+            "Clipping stage primitives output    ",
+            "Fragment shader invocations        "
+        };
+        if ( deviceFeatures.tessellationShader )
+        {
+            pipelineStatNames.push_back("Tess. control shader patches       ");
+            pipelineStatNames.push_back("Tess. eval. shader invocations     ");
+        }
+        pipelineStats.resize(pipelineStatNames.size());
+
+        VkQueryPoolCreateInfo queryPoolInfo = {};
+        queryPoolInfo.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+        // This query pool will store pipeline statistics
+        queryPoolInfo.queryType = VK_QUERY_TYPE_PIPELINE_STATISTICS;
+        // Pipeline counters to be returned for this pool
+        queryPoolInfo.pipelineStatistics =
+            VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_VERTICES_BIT |
+            VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_PRIMITIVES_BIT |
+            VK_QUERY_PIPELINE_STATISTIC_VERTEX_SHADER_INVOCATIONS_BIT |
+            VK_QUERY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS_BIT |
+            VK_QUERY_PIPELINE_STATISTIC_CLIPPING_PRIMITIVES_BIT |
+            VK_QUERY_PIPELINE_STATISTIC_FRAGMENT_SHADER_INVOCATIONS_BIT;
+        if ( deviceFeatures.tessellationShader )
+        {
+            queryPoolInfo.pipelineStatistics |=
+                VK_QUERY_PIPELINE_STATISTIC_TESSELLATION_CONTROL_SHADER_PATCHES_BIT |
+                VK_QUERY_PIPELINE_STATISTIC_TESSELLATION_EVALUATION_SHADER_INVOCATIONS_BIT;
+        }
+        queryPoolInfo.queryCount = deviceFeatures.tessellationShader ? 8 : 6;
+        VK_CHECK_RESULT(vkCreateQueryPool(device, &queryPoolInfo, NULL, &queryPool));
+    }
+
+    // Retrieves the results of the pipeline statistics query submitted to the command buffer
+    void getQueryResults()
+    {
+        uint32_t count = static_cast<uint32_t>(pipelineStats.size());
+        vkGetQueryPoolResults(
+            device,
+            queryPool,
+            0,
+            1,
+            count * sizeof(uint64_t),
+            pipelineStats.data(),
+            sizeof(uint64_t),
+            VK_QUERY_RESULT_64_BIT);
+    }
 
 	void setupDescriptorPool()
 	{
@@ -466,7 +537,10 @@ public:
 		submitInfo.pCommandBuffers = &drawCmdBuffers[currentBuffer];
 
 		// Submit to queue
-		VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
+        VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
+
+        // Read query results for displaying in next frame
+        getQueryResults();
 
 		VulkanExampleBase::submitFrame();
 	}
@@ -474,7 +548,8 @@ public:
 	void prepare()
 	{
 		VulkanExampleBase::prepare();
-		loadAssets();
+        loadAssets();
+        setupQueryPool();
 		prepareIndirectData();
 		prepareInstanceData();
 		prepareUniformBuffers();
@@ -514,6 +589,18 @@ public:
 		if (overlay->header("Statistics")) {
 			overlay->text("Objects: %d", objectCount);
 		}
+
+        if ( !pipelineStats.empty() )
+        {
+            if ( overlay->header("Pipeline statistics") )
+            {
+                for ( auto i = 0; i < pipelineStats.size(); i++ )
+                {
+                    std::string caption = pipelineStatNames[i] + ": %d";
+                    overlay->text(caption.c_str(), pipelineStats[i]);
+                }
+            }
+        }
 	}
 };
 
