@@ -232,7 +232,8 @@ namespace vkglTF
 		None = 0x00000000,
 		PreTransformVertices = 0x00000001,
 		PreMultiplyVertexColors = 0x00000002,
-		FlipY = 0x00000004,
+        FlipY = 0x00000004,
+        DegenerateTriangles64 = 0x00000008,
 		DontLoadImages = 0x00000008
 	};
 
@@ -289,7 +290,7 @@ namespace vkglTF
 
 		Model() {};
 		~Model();
-		void loadNode(vkglTF::Node* parent, const tinygltf::Node& node, uint32_t nodeIndex, const tinygltf::Model& model, std::vector<uint32_t>& indexBuffer, std::vector<Vertex>& vertexBuffer, float globalscale);
+		void loadNode(vkglTF::Node* parent, const tinygltf::Node& node, uint32_t nodeIndex, const tinygltf::Model& model, std::vector<uint32_t>& indexBuffer, std::vector<Vertex>& vertexBuffer, float globalscale, uint32_t degenerateTriangles = 1);
 		void loadSkins(tinygltf::Model& gltfModel);
 		void loadImages(tinygltf::Model& gltfModel, vks::VulkanDevice* device, VkQueue transferQueue);
 		void loadMaterials(tinygltf::Model& gltfModel);

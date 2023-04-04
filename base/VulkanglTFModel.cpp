@@ -756,7 +756,7 @@ vkglTF::Model::~Model()
 	emptyTexture.destroy();
 }
 
-void vkglTF::Model::loadNode(vkglTF::Node *parent, const tinygltf::Node &node, uint32_t nodeIndex, const tinygltf::Model &model, std::vector<uint32_t>& indexBuffer, std::vector<Vertex>& vertexBuffer, float globalscale)
+void vkglTF::Model::loadNode(vkglTF::Node *parent, const tinygltf::Node &node, uint32_t nodeIndex, const tinygltf::Model &model, std::vector<uint32_t>& indexBuffer, std::vector<Vertex>& vertexBuffer, float globalscale, uint32_t degenerateTriangles /*= 1*/)
 {
 	vkglTF::Node *newNode = new Node{};
 	newNode->index = nodeIndex;
@@ -791,7 +791,7 @@ void vkglTF::Model::loadNode(vkglTF::Node *parent, const tinygltf::Node &node, u
 	// Node with children
 	if (node.children.size() > 0) {
 		for (auto i = 0; i < node.children.size(); i++) {
-			loadNode(newNode, model.nodes[node.children[i]], node.children[i], model, indexBuffer, vertexBuffer, globalscale);
+			loadNode(newNode, model.nodes[node.children[i]], node.children[i], model, indexBuffer, vertexBuffer, globalscale, degenerateTriangles);
 		}
 	}
 
@@ -906,32 +906,68 @@ void vkglTF::Model::loadNode(vkglTF::Node *parent, const tinygltf::Node &node, u
 				const tinygltf::BufferView &bufferView = model.bufferViews[accessor.bufferView];
 				const tinygltf::Buffer &buffer = model.buffers[bufferView.buffer];
 
-				indexCount = static_cast<uint32_t>(accessor.count);
+				if ( degenerateTriangles > 0 )
+                {
+					const uint32_t numTri = (uint32_t)accessor.count / 3;
+					const uint32_t mod = numTri % degenerateTriangles;
+					if ( mod == 0 )
+					{
+						indexCount = static_cast<uint32_t>(numTri * 3);
+					}
+					else
+					{
+						indexCount = static_cast<uint32_t>((numTri + degenerateTriangles - mod) * 3);
+					}
+				}
+				else
+				{
+					indexCount = static_cast<uint32_t>(accessor.count);
+				}
 
 				switch (accessor.componentType) {
 				case TINYGLTF_PARAMETER_TYPE_UNSIGNED_INT: {
-					uint32_t *buf = new uint32_t[accessor.count];
+					uint32_t *buf = new uint32_t[indexCount];
 					memcpy(buf, &buffer.data[accessor.byteOffset + bufferView.byteOffset], accessor.count * sizeof(uint32_t));
-					for (size_t index = 0; index < accessor.count; index++) {
-						indexBuffer.push_back(buf[index] + vertexStart);
+					for (size_t index = 0; index < indexCount; index++) {
+						if ( index < accessor.count )
+						{
+                            indexBuffer.push_back(buf[index] + vertexStart);
+						}
+						else
+                        {
+							indexBuffer.push_back(buf[accessor.count - 1] + vertexStart);
+						}
 					}
                     delete[] buf;
 					break;
 				}
 				case TINYGLTF_PARAMETER_TYPE_UNSIGNED_SHORT: {
-					uint16_t *buf = new uint16_t[accessor.count];
+					uint16_t *buf = new uint16_t[indexCount];
 					memcpy(buf, &buffer.data[accessor.byteOffset + bufferView.byteOffset], accessor.count * sizeof(uint16_t));
-					for (size_t index = 0; index < accessor.count; index++) {
-						indexBuffer.push_back(buf[index] + vertexStart);
+					for (size_t index = 0; index < indexCount; index++) {
+						if ( index < accessor.count )
+						{
+							indexBuffer.push_back(buf[index] + vertexStart);
+						}
+						else
+						{
+							indexBuffer.push_back(buf[accessor.count - 1] + vertexStart);
+						}
 					}
                     delete[] buf;
                     break;
 				}
 				case TINYGLTF_PARAMETER_TYPE_UNSIGNED_BYTE: {
-					uint8_t *buf = new uint8_t[accessor.count];
+					uint8_t *buf = new uint8_t[indexCount];
 					memcpy(buf, &buffer.data[accessor.byteOffset + bufferView.byteOffset], accessor.count * sizeof(uint8_t));
-					for (size_t index = 0; index < accessor.count; index++) {
-						indexBuffer.push_back(buf[index] + vertexStart);
+					for (size_t index = 0; index < indexCount; index++) {
+						if ( index < accessor.count ) {
+							indexBuffer.push_back(buf[index] + vertexStart);
+						}
+						else {
+							indexBuffer.push_back(buf[accessor.count - 1] + vertexStart);
+						}
+						
 					}
                     delete[] buf;
                     break;
@@ -1203,7 +1239,8 @@ void vkglTF::Model::loadFromFile(std::string filename, vks::VulkanDevice *device
 		const tinygltf::Scene &scene = gltfModel.scenes[gltfModel.defaultScene > -1 ? gltfModel.defaultScene : 0];
 		for (size_t i = 0; i < scene.nodes.size(); i++) {
 			const tinygltf::Node node = gltfModel.nodes[scene.nodes[i]];
-			loadNode(nullptr, node, scene.nodes[i], gltfModel, indexBuffer, vertexBuffer, scale);
+			uint32_t degenerateTriangles = (fileLoadingFlags & FileLoadingFlags::DegenerateTriangles64) ? 64 : 1;
+			loadNode(nullptr, node, scene.nodes[i], gltfModel, indexBuffer, vertexBuffer, scale, degenerateTriangles);
 		}
 		if (gltfModel.animations.size() > 0) {
 			loadAnimations(gltfModel);
