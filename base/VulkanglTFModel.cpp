@@ -1307,6 +1307,12 @@ void vkglTF::Model::loadFromFile(std::string filename, vks::VulkanDevice *device
 	indices.count = static_cast<uint32_t>(indexBuffer.size());
 	vertices.count = static_cast<uint32_t>(vertexBuffer.size());
 
+	if ( fileLoadingFlags & FileLoadingFlags::KeepCpuVertexData )
+    {
+        cpuVertices.resize(vertices.count);
+        memcpy(cpuVertices.data(), vertexBuffer.data(), vertexBufferSize);
+	}
+
 	assert((vertexBufferSize > 0) && (indexBufferSize > 0));
 
 	struct StagingBuffer {
