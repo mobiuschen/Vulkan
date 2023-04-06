@@ -393,8 +393,8 @@ public:
 		pipelineCreateInfo.pVertexInputState = &inputState;
 
 		// Indirect (and instanced) pipeline for the plants
-		shaderStages[0] = loadShader(getShadersPath() + "noodlebatch/indirectdraw.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
-		shaderStages[1] = loadShader(getShadersPath() + "noodlebatch/indirectdraw.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+		shaderStages[0] = loadShader(getShadersPath() + "noodlebatch/noodlebatch.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
+		shaderStages[1] = loadShader(getShadersPath() + "noodlebatch/noodlebatch.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 		VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineCreateInfo, nullptr, &pipelines.plants));
 
 		// Only use non-instanced vertex attributes for models rendered without instancing
