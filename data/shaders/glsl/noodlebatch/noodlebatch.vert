@@ -6,17 +6,30 @@ layout (location = 1) in vec3 inNormal;
 layout (location = 2) in vec2 inUV;
 layout (location = 3) in vec3 inColor;
 
-// Instanced attributes
-layout (location = 4) in vec3 instancePos;
-layout (location = 5) in vec3 instanceRot;
-layout (location = 6) in float instanceScale;
-layout (location = 7) in int instanceTexIndex;
-
 layout (binding = 0) uniform UBO 
 {
 	mat4 projection;
 	mat4 modelview;
 } ubo;
+
+
+struct Instance
+{
+	vec3 pos;
+	float pad;
+	vec3 rot;
+	float scale;
+};
+
+layout (binding = 3, std140) buffer Instances 
+{
+   Instance instances[ ];
+};
+
+layout (binding = 4) buffer InstanceTexIndices 
+{
+   int instanceTexIndices[ ];
+};
 
 layout (location = 0) out vec3 outNormal;
 layout (location = 1) out vec3 outColor;
@@ -26,6 +39,11 @@ layout (location = 4) out vec3 outLightVec;
 
 void main() 
 {
+	vec3 instancePos = instances[gl_InstanceIndex].pos;
+	vec3 instanceRot = instances[gl_InstanceIndex].rot;
+	float instanceScale = instances[gl_InstanceIndex].scale;
+	int instanceTexIndex = instanceTexIndices[gl_InstanceIndex];
+
 	outColor = inColor;
 	outUV = vec3(inUV, instanceTexIndex);
 

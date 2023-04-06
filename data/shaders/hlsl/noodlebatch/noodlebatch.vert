@@ -6,16 +6,20 @@ struct VSInput
 [[vk::location(1)]] float3 Normal : NORMAL0;
 [[vk::location(2)]] float2 UV : TEXCOORD0;
 [[vk::location(3)]] float3 Color : COLOR0;
-[[vk::location(4)]] float3 instancePos : POSITION1;
-[[vk::location(5)]] float3 instanceRot : TEXCOORD1;
-[[vk::location(6)]] float instanceScale : TEXCOORD2;
-[[vk::location(7)]] int instanceTexIndex : TEXCOORD3;
 };
 
 struct UBO
 {
 	float4x4 projection;
 	float4x4 modelview;
+};
+
+struct Instance
+{
+	float3 pos;
+	float pad;
+	float3 rot;
+	float scale;
 };
 
 cbuffer ubo : register(b0) { UBO ubo; }
@@ -30,17 +34,26 @@ struct VSOutput
 [[vk::location(4)]] float3 LightVec : TEXCOORD2;
 };
 
-VSOutput main(VSInput input)
+StructuredBuffer<Instance> instances : register(t3);
+StructuredBuffer<int> instanceTexIndices : register(t4);
+
+VSOutput main(VSInput input, uint InstanceIndex : SV_InstanceID)
 {
+	float3 instancePos = instances[InstanceIndex].pos.xyz;
+	float3 instanceRot = instances[InstanceIndex].rot;
+	float instanceScale = instances[InstanceIndex].scale;
+	int instanceTexIndex = instanceTexIndices[InstanceIndex];
+
 	VSOutput output = (VSOutput)0;
 	output.Color = input.Color;
-	output.UV = float3(input.UV, input.instanceTexIndex);
+	output.UV = float3(input.UV, instanceTexIndex);
+
 
 	float4x4 mx, my, mz;
 
 	// rotate around x
-	float s = sin(input.instanceRot.x);
-	float c = cos(input.instanceRot.x);
+	float s = sin(instanceRot.x);
+	float c = cos(instanceRot.x);
 
 	mx[0] = float4(c, s, 0.0, 0.0);
 	mx[1] = float4(-s, c, 0.0, 0.0);
@@ -48,8 +61,8 @@ VSOutput main(VSInput input)
 	mx[3] = float4(0.0, 0.0, 0.0, 1.0);
 
 	// rotate around y
-	s = sin(input.instanceRot.y);
-	c = cos(input.instanceRot.y);
+	s = sin(instanceRot.y);
+	c = cos(instanceRot.y);
 
 	my[0] = float4(c, 0.0, s, 0.0);
 	my[1] = float4(0.0, 1.0, 0.0, 0.0);
@@ -57,8 +70,8 @@ VSOutput main(VSInput input)
 	my[3] = float4(0.0, 0.0, 0.0, 1.0);
 
 	// rot around z
-	s = sin(input.instanceRot.z);
-	c = cos(input.instanceRot.z);
+	s = sin(instanceRot.z);
+	c = cos(instanceRot.z);
 
 	mz[0] = float4(1.0, 0.0, 0.0, 0.0);
 	mz[1] = float4(0.0, c, s, 0.0);
@@ -69,7 +82,8 @@ VSOutput main(VSInput input)
 
 	output.Normal = mul((float4x3)rotMat, input.Normal).xyz;
 
-	float4 pos = mul(rotMat, float4((input.Pos.xyz * input.instanceScale) + input.instancePos, 1.0));
+
+	float4 pos = mul(rotMat, float4((input.Pos.xyz * instanceScale) + instancePos, 1.0));
 
 	output.Pos = mul(ubo.projection, mul(ubo.modelview, pos));
 

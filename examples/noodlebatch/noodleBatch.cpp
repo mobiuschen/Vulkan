@@ -23,7 +23,6 @@
 #include "VulkanglTFModel.h"
 
 #define VERTEX_BUFFER_BIND_ID 0
-#define INSTANCE_BUFFER_BIND_ID 1
 #define ENABLE_VALIDATION false
 
 // Number of instances per object
@@ -51,16 +50,17 @@ public:
 		vkglTF::Model skysphere;
 	} models;
 
-	// Per-instance data block
-	struct InstanceData {
-		glm::vec3 pos;
-		glm::vec3 rot;
-		float scale;
-		uint32_t texIndex;
-	};
+    struct InstanceData {
+        glm::vec3 pos;
+		float pad;
+        glm::vec3 rot;
+        float scale;
+    };
 
-	// Contains the instanced data
-	vks::Buffer instanceBuffer;
+    struct InstanceTexIndexData {
+        uint32_t texIndex;
+    };
+
 	// Contains the indirect drawing commands
 	vks::Buffer indirectCommandsBuffer;
 	uint32_t indirectDrawCount;
@@ -73,6 +73,9 @@ public:
 	struct {
 		vks::Buffer scene;
 	} uniformData;
+
+    vks::Buffer instanceStorageBuffer;
+    vks::Buffer instanceTexIndexStorageBuffer;
 
 	struct {
 		VkPipeline plants;
@@ -116,7 +119,8 @@ public:
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 		textures.plants.destroy();
 		textures.ground.destroy();
-		instanceBuffer.destroy();
+		instanceStorageBuffer.destroy();
+		instanceTexIndexStorageBuffer.destroy();
 		indirectCommandsBuffer.destroy();
 		uniformData.scene.destroy();
         vkDestroyQueryPool(device, queryPool, nullptr);
@@ -185,8 +189,6 @@ public:
 			vkCmdBindPipeline(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.plants);
 			// Binding point 0 : Mesh vertex buffer
 			vkCmdBindVertexBuffers(drawCmdBuffers[i], VERTEX_BUFFER_BIND_ID, 1, &models.plants.vertices.buffer, offsets);
-			// Binding point 1 : Instance data buffer
-			vkCmdBindVertexBuffers(drawCmdBuffers[i], INSTANCE_BUFFER_BIND_ID, 1, &instanceBuffer.buffer, offsets);
 
 			vkCmdBindIndexBuffer(drawCmdBuffers[i], models.plants.indices.buffer, 0, VK_INDEX_TYPE_UINT32);
 
@@ -300,8 +302,12 @@ public:
 			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0),
 			// Binding 1: Fragment shader combined sampler (plants texture array)
 			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1),
-			// Binding 1: Fragment shader combined sampler (ground texture)
-			vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2),
+			// Binding 2: Fragment shader combined sampler (ground texture)
+            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2),
+            // Binding 3: 
+            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 3),
+            // Binding 4: 
+            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 4),
 		};
 
 		VkDescriptorSetLayoutCreateInfo descriptorLayout = vks::initializers::descriptorSetLayoutCreateInfo(setLayoutBindings);
@@ -320,9 +326,13 @@ public:
 			// Binding 0: Vertex shader uniform buffer
 			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &uniformData.scene.descriptor),
 			// Binding 1: Plants texture array combined
-			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, &textures.plants.descriptor),
-			// Binding 2: Ground texture combined
-			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2, &textures.ground.descriptor)
+            vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, &textures.plants.descriptor),
+            // Binding 2: Ground texture combined
+            vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2, &textures.ground.descriptor),
+            // Binding 3: Instance Data storage buffer
+            vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3, &instanceStorageBuffer.descriptor),
+            // Binding 4: 
+            vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4, &instanceTexIndexStorageBuffer.descriptor),
 		};
 		vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 	}
@@ -361,8 +371,6 @@ public:
 		bindingDescriptions = {
 		    // Binding point 0: Mesh vertex layout description at per-vertex rate
 		    vks::initializers::vertexInputBindingDescription(VERTEX_BUFFER_BIND_ID, sizeof(vkglTF::Vertex), VK_VERTEX_INPUT_RATE_VERTEX),
-		    // Binding point 1: Instanced data at per-instance rate
-		    vks::initializers::vertexInputBindingDescription(INSTANCE_BUFFER_BIND_ID, sizeof(InstanceData), VK_VERTEX_INPUT_RATE_INSTANCE)
 		};
 
 		// Vertex attribute bindings
@@ -378,12 +386,6 @@ public:
 		    vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 3),				// Location 1: Normal
 		    vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID, 2, VK_FORMAT_R32G32_SFLOAT, sizeof(float) * 6),					// Location 2: Texture coordinates
 		    vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID, 3, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 8),				// Location 3: Color
-		    // Per-Instance attributes
-		    // These are fetched for each instance rendered
-		    vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, 4, VK_FORMAT_R32G32B32_SFLOAT, offsetof(InstanceData, pos)),	// Location 4: Position
-		    vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, 5, VK_FORMAT_R32G32B32_SFLOAT, offsetof(InstanceData, rot)),	// Location 5: Rotation
-		    vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, 6, VK_FORMAT_R32_SFLOAT, offsetof(InstanceData, scale)),		// Location 6: Scale
-		    vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, 7, VK_FORMAT_R32_SINT, offsetof(InstanceData, texIndex)),		// Location 7: Texture array layer index
 		};
 		inputState.pVertexBindingDescriptions = bindingDescriptions.data();
 		inputState.pVertexAttributeDescriptions = attributeDescriptions.data();
@@ -467,42 +469,63 @@ public:
 		stagingBuffer.destroy();
 	}
 
-	// Prepare (and stage) a buffer containing instanced data for the mesh draws
-	void prepareInstanceData()
-	{
-		std::vector<InstanceData> instanceData;
-		instanceData.resize(objectCount);
+    // Prepare (and stage) a buffer containing instanced data for the mesh draws
+    void prepareInstanceData()
+    {
+        std::vector<InstanceData> instanceData;
+		std::vector<InstanceTexIndexData> instanceTexIndexData;
+        instanceData.resize(objectCount);
+		instanceTexIndexData.resize(objectCount);
 
-		std::default_random_engine rndEngine(benchmark.active ? 0 : (unsigned)time(nullptr));
-		std::uniform_real_distribution<float> uniformDist(0.0f, 1.0f);
+        std::default_random_engine rndEngine(benchmark.active ? 0 : (unsigned)time(nullptr));
+        std::uniform_real_distribution<float> uniformDist(0.0f, 1.0f);
 
-		for (uint32_t i = 0; i < objectCount; i++) {
-			float theta = 2 * float(M_PI) * uniformDist(rndEngine);
-			float phi = acos(1 - 2 * uniformDist(rndEngine));
-			instanceData[i].rot = glm::vec3(0.0f, float(M_PI) * uniformDist(rndEngine), 0.0f);
-			instanceData[i].pos = glm::vec3(sin(phi) * cos(theta), 0.0f, cos(phi)) * PLANT_RADIUS;
-			instanceData[i].scale = 1.0f + uniformDist(rndEngine) * 2.0f;
-			instanceData[i].texIndex = i / OBJECT_INSTANCE_COUNT;
-		}
+        for ( uint32_t i = 0; i < objectCount; i++ )
+        {
+            float theta = 2 * float(M_PI) * uniformDist(rndEngine);
+            float phi = acos(1 - 2 * uniformDist(rndEngine));
+            instanceData[i].rot = glm::vec3(0.0f, float(M_PI) * uniformDist(rndEngine), 0.0f);
+            instanceData[i].pos = glm::vec3(sin(phi) * cos(theta), 0.0f, cos(phi)) * PLANT_RADIUS;
+            instanceData[i].scale = 1.0f + uniformDist(rndEngine) * 2.0f;
 
-		vks::Buffer stagingBuffer;
-		VK_CHECK_RESULT(vulkanDevice->createBuffer(
-			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			&stagingBuffer,
-			instanceData.size() * sizeof(InstanceData),
-			instanceData.data()));
+			instanceTexIndexData[i].texIndex = i / OBJECT_INSTANCE_COUNT;
+        }
 
-		VK_CHECK_RESULT(vulkanDevice->createBuffer(
-			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			&instanceBuffer,
-			stagingBuffer.size));
+        vks::Buffer stagingBuffer;
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &stagingBuffer,
+            instanceData.size() * sizeof(InstanceData),
+            instanceData.data()));
 
-		vulkanDevice->copyBuffer(&stagingBuffer, &instanceBuffer, queue);
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            &instanceStorageBuffer,
+            stagingBuffer.size));
 
-		stagingBuffer.destroy();
-	}
+        vulkanDevice->copyBuffer(&stagingBuffer, &instanceStorageBuffer, queue);
+        stagingBuffer.destroy();
+
+
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &stagingBuffer,
+            instanceTexIndexData.size() * sizeof(InstanceTexIndexData),
+            instanceTexIndexData.data()));
+
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            &instanceTexIndexStorageBuffer,
+            stagingBuffer.size));
+
+        vulkanDevice->copyBuffer(&stagingBuffer, &instanceTexIndexStorageBuffer, queue);
+        stagingBuffer.destroy();
+    }
+
 
 	void prepareUniformBuffers()
 	{
