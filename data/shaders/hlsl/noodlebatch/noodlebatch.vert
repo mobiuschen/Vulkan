@@ -1,13 +1,5 @@
 // Copyright 2020 Google LLC
 
-struct VSInput
-{
-[[vk::location(0)]] float4 Pos : POSITION0;
-[[vk::location(1)]] float3 Normal : NORMAL0;
-[[vk::location(2)]] float2 UV : TEXCOORD0;
-[[vk::location(3)]] float3 Color : COLOR0;
-};
-
 struct UBO
 {
 	float4x4 projection;
@@ -20,6 +12,17 @@ struct Instance
 	float pad;
 	float3 rot;
 	float scale;
+};
+
+struct VertexData
+{
+	float4 pos;
+	float3 normal;
+	float pad0;
+	float2 uv;
+	float2 pad1;
+	float3 color;
+	float pad2;
 };
 
 cbuffer ubo : register(b0) { UBO ubo; }
@@ -36,17 +39,23 @@ struct VSOutput
 
 StructuredBuffer<Instance> instances : register(t3);
 StructuredBuffer<int> instanceTexIndices : register(t4);
+StructuredBuffer<VertexData> vertexDatas : register(t5);
 
-VSOutput main(VSInput input, uint InstanceIndex : SV_InstanceID)
+VSOutput main(uint InstanceIndex : SV_InstanceID, uint VertexIndex : SV_VertexID)
 {
 	float3 instancePos = instances[InstanceIndex].pos.xyz;
 	float3 instanceRot = instances[InstanceIndex].rot;
 	float instanceScale = instances[InstanceIndex].scale;
 	int instanceTexIndex = instanceTexIndices[InstanceIndex];
 
+	float4 inputPos = vertexDatas[VertexIndex].pos;
+	float3 inputNormal = vertexDatas[VertexIndex].normal;
+	float2 inputUV = vertexDatas[VertexIndex].uv;
+	float3 inputColor = vertexDatas[VertexIndex].color;
+
 	VSOutput output = (VSOutput)0;
-	output.Color = input.Color;
-	output.UV = float3(input.UV, instanceTexIndex);
+	output.Color = inputColor;
+	output.UV = float3(inputUV, instanceTexIndex);
 
 
 	float4x4 mx, my, mz;
@@ -80,10 +89,10 @@ VSOutput main(VSInput input, uint InstanceIndex : SV_InstanceID)
 
 	float4x4 rotMat = mul(mz, mul(my, mx));
 
-	output.Normal = mul((float4x3)rotMat, input.Normal).xyz;
+	output.Normal = mul((float4x3)rotMat, inputNormal).xyz;
 
 
-	float4 pos = mul(rotMat, float4((input.Pos.xyz * instanceScale) + instancePos, 1.0));
+	float4 pos = mul(rotMat, float4((inputPos.xyz * instanceScale) + instancePos, 1.0));
 
 	output.Pos = mul(ubo.projection, mul(ubo.modelview, pos));
 

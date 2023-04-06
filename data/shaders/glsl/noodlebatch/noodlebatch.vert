@@ -1,10 +1,10 @@
 #version 450
 
 // Vertex attributes
-layout (location = 0) in vec3 inPos;
-layout (location = 1) in vec3 inNormal;
-layout (location = 2) in vec2 inUV;
-layout (location = 3) in vec3 inColor;
+// layout (location = 0) in vec3 inPos;
+// layout (location = 1) in vec3 inNormal;
+// layout (location = 2) in vec2 inUV;
+// layout (location = 3) in vec3 inColor;
 
 layout (binding = 0) uniform UBO 
 {
@@ -21,6 +21,17 @@ struct Instance
 	float scale;
 };
 
+struct VertexData
+{
+	vec4 pos;
+	vec3 normal;
+	float pad0;
+	vec2 uv;
+	vec2 pad1;
+	vec3 color;
+	float pad2;
+};
+
 layout (binding = 3, std140) buffer Instances 
 {
    Instance instances[ ];
@@ -29,6 +40,11 @@ layout (binding = 3, std140) buffer Instances
 layout (binding = 4) buffer InstanceTexIndices 
 {
    int instanceTexIndices[ ];
+};
+
+layout (binding = 5) buffer VertexDatas 
+{
+   VertexData vertexDatas[ ];
 };
 
 layout (location = 0) out vec3 outNormal;
@@ -43,6 +59,11 @@ void main()
 	vec3 instanceRot = instances[gl_InstanceIndex].rot;
 	float instanceScale = instances[gl_InstanceIndex].scale;
 	int instanceTexIndex = instanceTexIndices[gl_InstanceIndex];
+	
+	vec3 inPos = vertexDatas[gl_VertexIndex].pos.xyz;
+	vec3 inNormal = vertexDatas[gl_VertexIndex].normal;
+	vec2 inUV = vertexDatas[gl_VertexIndex].uv;
+	vec3 inColor = vertexDatas[gl_VertexIndex].color;
 
 	outColor = inColor;
 	outUV = vec3(inUV, instanceTexIndex);

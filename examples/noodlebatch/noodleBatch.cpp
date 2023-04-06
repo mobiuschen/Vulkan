@@ -61,6 +61,16 @@ public:
         uint32_t texIndex;
     };
 
+	struct VertexData {
+		glm::vec4 pos;
+		glm::vec3 normal;
+		float pad0;
+		glm::vec2 uv;
+		glm::vec2 pad1;
+		glm::vec3 color;
+		float pad2;
+	};
+
 	// Contains the indirect drawing commands
 	vks::Buffer indirectCommandsBuffer;
 	uint32_t indirectDrawCount;
@@ -76,6 +86,7 @@ public:
 
     vks::Buffer instanceStorageBuffer;
     vks::Buffer instanceTexIndexStorageBuffer;
+	vks::Buffer vertexDataStorageBuffer;
 
 	struct {
 		VkPipeline plants;
@@ -121,6 +132,7 @@ public:
 		textures.ground.destroy();
 		instanceStorageBuffer.destroy();
 		instanceTexIndexStorageBuffer.destroy();
+		vertexDataStorageBuffer.destroy();
 		indirectCommandsBuffer.destroy();
 		uniformData.scene.destroy();
         vkDestroyQueryPool(device, queryPool, nullptr);
@@ -187,8 +199,6 @@ public:
 
 			// [POI] Instanced multi draw rendering of the plants
 			vkCmdBindPipeline(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.plants);
-			// Binding point 0 : Mesh vertex buffer
-			vkCmdBindVertexBuffers(drawCmdBuffers[i], VERTEX_BUFFER_BIND_ID, 1, &models.plants.vertices.buffer, offsets);
 
 			vkCmdBindIndexBuffer(drawCmdBuffers[i], models.plants.indices.buffer, 0, VK_INDEX_TYPE_UINT32);
 
@@ -221,7 +231,12 @@ public:
 
 	void loadAssets()
 	{
-		const uint32_t glTFLoadingFlags = vkglTF::FileLoadingFlags::PreTransformVertices | vkglTF::FileLoadingFlags::PreMultiplyVertexColors | vkglTF::FileLoadingFlags::FlipY | vkglTF::FileLoadingFlags::DegenerateTriangles64;
+		const uint32_t glTFLoadingFlags = 
+			vkglTF::FileLoadingFlags::PreTransformVertices | 
+			vkglTF::FileLoadingFlags::PreMultiplyVertexColors | 
+			vkglTF::FileLoadingFlags::FlipY | 
+			vkglTF::FileLoadingFlags::DegenerateTriangles64 |
+			vkglTF::FileLoadingFlags::KeepCpuVertexData;
 		models.plants.loadFromFile(getAssetPath() + "models/plants.gltf", vulkanDevice, queue, glTFLoadingFlags);
 		models.ground.loadFromFile(getAssetPath() + "models/plane_circle.gltf", vulkanDevice, queue, glTFLoadingFlags);
 		models.skysphere.loadFromFile(getAssetPath() + "models/sphere.gltf", vulkanDevice, queue, glTFLoadingFlags);
@@ -308,6 +323,8 @@ public:
             vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 3),
             // Binding 4: 
             vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 4),
+			// Binding 5:
+            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 5),
 		};
 
 		VkDescriptorSetLayoutCreateInfo descriptorLayout = vks::initializers::descriptorSetLayoutCreateInfo(setLayoutBindings);
@@ -333,6 +350,8 @@ public:
             vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3, &instanceStorageBuffer.descriptor),
             // Binding 4: 
             vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4, &instanceTexIndexStorageBuffer.descriptor),
+            // Binding 5: 
+            vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 5, &vertexDataStorageBuffer.descriptor),
 		};
 		vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 	}
@@ -392,13 +411,16 @@ public:
 		inputState.vertexBindingDescriptionCount   = static_cast<uint32_t>(bindingDescriptions.size());
 		inputState.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
 
-		pipelineCreateInfo.pVertexInputState = &inputState;
+
+		// we do not need vertex input in plant pipeline.
+		pipelineCreateInfo.pVertexInputState = nullptr;
 
 		// Indirect (and instanced) pipeline for the plants
 		shaderStages[0] = loadShader(getShadersPath() + "noodlebatch/noodlebatch.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
 		shaderStages[1] = loadShader(getShadersPath() + "noodlebatch/noodlebatch.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 		VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineCreateInfo, nullptr, &pipelines.plants));
 
+        pipelineCreateInfo.pVertexInputState = &inputState;
 		// Only use non-instanced vertex attributes for models rendered without instancing
 		inputState.vertexBindingDescriptionCount = 1;
 		inputState.vertexAttributeDescriptionCount = 4;
@@ -468,6 +490,38 @@ public:
 
 		stagingBuffer.destroy();
 	}
+
+
+    void prepareVertexData()
+    {
+        std::vector<VertexData> vertices;;
+		vertices.resize(models.plants.cpuVertices.size());
+
+        for ( uint32_t i = 0; i < vertices.size(); i++ )
+        {
+			vertices[i].pos = glm::vec4(models.plants.cpuVertices[i].pos, 0.0f);
+			vertices[i].normal = models.plants.cpuVertices[i].normal;
+			vertices[i].uv = models.plants.cpuVertices[i].uv;
+			vertices[i].color = models.plants.cpuVertices[i].color;
+        }
+
+        vks::Buffer stagingBuffer;
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &stagingBuffer,
+			vertices.size() * sizeof(VertexData),
+			vertices.data()));
+
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            &vertexDataStorageBuffer,
+            stagingBuffer.size));
+
+        vulkanDevice->copyBuffer(&stagingBuffer, &vertexDataStorageBuffer, queue);
+        stagingBuffer.destroy();
+    }
 
     // Prepare (and stage) a buffer containing instanced data for the mesh draws
     void prepareInstanceData()
@@ -574,6 +628,7 @@ public:
         loadAssets();
         setupQueryPool();
 		prepareIndirectData();
+		prepareVertexData();
 		prepareInstanceData();
 		prepareUniformBuffers();
 		setupDescriptorSetLayout();
