@@ -234,7 +234,7 @@ namespace vkglTF
 		PreMultiplyVertexColors = 0x00000002,
         FlipY = 0x00000004,
         DegenerateTriangles64 = 0x00000008,
-        KeepCpuVertexData = 0x00000010,
+        KeepCpuData = 0x00000010,
 		DontLoadImages = 0x00000008
 	};
 
@@ -268,6 +268,7 @@ namespace vkglTF
 			VkDeviceMemory memory;
 		} indices;
 
+		std::vector<uint32_t> cpuIndices;
 		std::vector<Vertex> cpuVertices;
 
 		std::vector<Node*> nodes;
