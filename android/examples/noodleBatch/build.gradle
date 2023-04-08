@@ -49,8 +49,20 @@ task copyTask {
     }
 
     copy {
-       from '../../../data/shaders/glsl/noodleBatch'
-       into 'assets/shaders/glsl/noodleBatch'
+       from '../../../data/shaders/glsl/noodlebatch'
+       into 'assets/shaders/glsl/noodlebatch'
+       include '*.*'
+    }
+    
+    copy {
+        from '../../../data/shaders/hlsl/base'
+        into 'assets/shaders/hlsl/base'
+        include '*.spv'
+    }
+
+    copy {
+       from '../../../data/shaders/hlsl/noodlebatch'
+       into 'assets/shaders/hlsl/noodlebatch'
        include '*.*'
     }
 
