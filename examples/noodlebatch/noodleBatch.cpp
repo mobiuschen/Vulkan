@@ -23,6 +23,7 @@
 #include "VulkanglTFModel.h"
 
 #define VERTEX_BUFFER_BIND_ID 0
+#define INSTANCE_BUFFER_BIND_ID 1
 #define ENABLE_VALIDATION false
 
 // Number of instances per object
@@ -31,10 +32,12 @@
 // Circular range of plant distribution
 #define PLANT_RADIUS 20.0f
 #else
-#define OBJECT_INSTANCE_COUNT 2048
+#define OBJECT_INSTANCE_COUNT 4096
 // Circular range of plant distribution
 #define PLANT_RADIUS 25.0f
 #endif
+
+static const uint32_t CLUSTER_TRIANGLE_NUM = 64;
 
 class VulkanExample : public VulkanExampleBase
 {
@@ -46,8 +49,8 @@ public:
 
 	struct {
 		vkglTF::Model plants;
-		vkglTF::Model ground;
-		vkglTF::Model skysphere;
+        vkglTF::Model ground;
+        vkglTF::Model skysphere;
 	} models;
 
     struct InstanceData {
@@ -71,6 +74,12 @@ public:
 		float pad2;
 	};
 
+	struct ClusterDesc
+	{
+		uint32_t indexOffset;
+		uint32_t instanceOffset;
+	};
+
 	// Contains the indirect drawing commands
 	vks::Buffer indirectCommandsBuffer;
 	uint32_t indirectDrawCount;
@@ -84,9 +93,13 @@ public:
 		vks::Buffer scene;
 	} uniformData;
 
+    vks::Buffer fixedIndexBuffer;
+    vks::Buffer clusterBuffer;
+
     vks::Buffer instanceStorageBuffer;
     vks::Buffer instanceTexIndexStorageBuffer;
 	vks::Buffer vertexDataStorageBuffer;
+    vks::Buffer indexStorageBuffer;
 
 	struct {
 		VkPipeline plants;
@@ -106,7 +119,8 @@ public:
 
 	VkSampler samplerRepeat;
 
-	uint32_t objectCount = 0;
+    uint32_t objectCount = 0;
+    uint32_t clusterCount = 0;
 
 	// Store the indirect draw commands containing index offsets and instance count per object
 	std::vector<VkDrawIndexedIndirectCommand> indirectCommands;
@@ -130,10 +144,13 @@ public:
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 		textures.plants.destroy();
 		textures.ground.destroy();
+		fixedIndexBuffer.destroy();
+		clusterBuffer.destroy();
 		instanceStorageBuffer.destroy();
 		instanceTexIndexStorageBuffer.destroy();
 		vertexDataStorageBuffer.destroy();
 		indirectCommandsBuffer.destroy();
+		indexStorageBuffer.destroy();
 		uniformData.scene.destroy();
         vkDestroyQueryPool(device, queryPool, nullptr);
 	}
@@ -148,6 +165,10 @@ public:
 		// Enable anisotropic filtering if supported
 		if (deviceFeatures.samplerAnisotropy) {
 			enabledFeatures.samplerAnisotropy = VK_TRUE;
+		}
+		if ( deviceFeatures.pipelineStatisticsQuery )
+		{
+			enabledFeatures.pipelineStatisticsQuery = VK_TRUE;
 		}
 	};
 
@@ -199,8 +220,10 @@ public:
 
 			// [POI] Instanced multi draw rendering of the plants
 			vkCmdBindPipeline(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.plants);
+            vkCmdBindVertexBuffers(drawCmdBuffers[i], INSTANCE_BUFFER_BIND_ID, 1, &clusterBuffer.buffer, offsets);
 
-			vkCmdBindIndexBuffer(drawCmdBuffers[i], models.plants.indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+            //vkCmdBindIndexBuffer(drawCmdBuffers[i], models.plants.indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+            vkCmdBindIndexBuffer(drawCmdBuffers[i], fixedIndexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
 			// If the multi draw feature is supported:
 			// One draw call for an arbitrary number of objects
@@ -236,10 +259,10 @@ public:
 			vkglTF::FileLoadingFlags::PreMultiplyVertexColors | 
 			vkglTF::FileLoadingFlags::FlipY | 
 			vkglTF::FileLoadingFlags::DegenerateTriangles64 |
-			vkglTF::FileLoadingFlags::KeepCpuVertexData;
-		models.plants.loadFromFile(getAssetPath() + "models/plants.gltf", vulkanDevice, queue, glTFLoadingFlags);
+			vkglTF::FileLoadingFlags::KeepCpuData;
+        models.plants.loadFromFile(getAssetPath() + "models/plants.gltf", vulkanDevice, queue, glTFLoadingFlags);
 		models.ground.loadFromFile(getAssetPath() + "models/plane_circle.gltf", vulkanDevice, queue, glTFLoadingFlags);
-		models.skysphere.loadFromFile(getAssetPath() + "models/sphere.gltf", vulkanDevice, queue, glTFLoadingFlags);
+        models.skysphere.loadFromFile(getAssetPath() + "models/sphere.gltf", vulkanDevice, queue, glTFLoadingFlags);
 		textures.plants.loadFromFile(getAssetPath() + "textures/texturearray_plants_rgba.ktx", VK_FORMAT_R8G8B8A8_UNORM, vulkanDevice, queue);
 		textures.ground.loadFromFile(getAssetPath() + "textures/ground_dry_rgba.ktx", VK_FORMAT_R8G8B8A8_UNORM, vulkanDevice, queue);
 	}
@@ -302,8 +325,9 @@ public:
 	void setupDescriptorPool()
 	{
 		std::vector<VkDescriptorPoolSize> poolSizes = {
-			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1),
-			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2),
+            vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1),
+            vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2),
+            vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4),
 		};
 
 		VkDescriptorPoolCreateInfo descriptorPoolInfo = vks::initializers::descriptorPoolCreateInfo(poolSizes, 2);
@@ -323,20 +347,23 @@ public:
             vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 3),
             // Binding 4: 
             vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 4),
-			// Binding 5:
+            // Binding 5:
             vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 5),
+            // Binding 6:
+            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 6),
 		};
 
 		VkDescriptorSetLayoutCreateInfo descriptorLayout = vks::initializers::descriptorSetLayoutCreateInfo(setLayoutBindings);
 		VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorLayout, nullptr, &descriptorSetLayout));
 
 		VkPipelineLayoutCreateInfo pPipelineLayoutCreateInfo = vks::initializers::pipelineLayoutCreateInfo(&descriptorSetLayout, 1);
+		
 		VK_CHECK_RESULT(vkCreatePipelineLayout(device, &pPipelineLayoutCreateInfo, nullptr, &pipelineLayout));
 	}
 
 	void setupDescriptorSet()
 	{
-		VkDescriptorSetAllocateInfo allocInfo =vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayout, 1);
+		VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayout, 1);
 		VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet));
 
 		std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
@@ -352,6 +379,8 @@ public:
             vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4, &instanceTexIndexStorageBuffer.descriptor),
             // Binding 5: 
             vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 5, &vertexDataStorageBuffer.descriptor),
+            // Binding 6: 
+            vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 6, &indexStorageBuffer.descriptor),
 		};
 		vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
 	}
@@ -385,40 +414,52 @@ public:
 		std::vector<VkVertexInputBindingDescription> bindingDescriptions;
 		std::vector<VkVertexInputAttributeDescription> attributeDescriptions;
 
-		// Vertex input bindings
-		// The instancing pipeline uses a vertex input state with two bindings
-		bindingDescriptions = {
-		    // Binding point 0: Mesh vertex layout description at per-vertex rate
-		    vks::initializers::vertexInputBindingDescription(VERTEX_BUFFER_BIND_ID, sizeof(vkglTF::Vertex), VK_VERTEX_INPUT_RATE_VERTEX),
+        bindingDescriptions = {
+            // Binding point 0: Mesh vertex layout description at per-vertex rate
+            vks::initializers::vertexInputBindingDescription(INSTANCE_BUFFER_BIND_ID, sizeof(ClusterDesc), VK_VERTEX_INPUT_RATE_INSTANCE),
 		};
-
-		// Vertex attribute bindings
-		// Note that the shader declaration for per-vertex and per-instance attributes is the same, the different input rates are only stored in the bindings:
-		// instanced.vert:
-		//	layout (location = 0) in vec3 inPos;		Per-Vertex
-		//	...
-		//	layout (location = 4) in vec3 instancePos;	Per-Instance
-		attributeDescriptions = {
-		    // Per-vertex attributes
-		    // These are advanced for each vertex fetched by the vertex shader
-		    vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID, 0, VK_FORMAT_R32G32B32_SFLOAT, 0),								// Location 0: Position
-		    vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 3),				// Location 1: Normal
-		    vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID, 2, VK_FORMAT_R32G32_SFLOAT, sizeof(float) * 6),					// Location 2: Texture coordinates
-		    vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID, 3, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 8),				// Location 3: Color
+        attributeDescriptions = {
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, 0, VK_FORMAT_R32_UINT, offsetof(ClusterDesc, indexOffset)),
+            vks::initializers::vertexInputAttributeDescription(INSTANCE_BUFFER_BIND_ID, 1, VK_FORMAT_R32_UINT, offsetof(ClusterDesc, instanceOffset)),
 		};
-		inputState.pVertexBindingDescriptions = bindingDescriptions.data();
-		inputState.pVertexAttributeDescriptions = attributeDescriptions.data();
-		inputState.vertexBindingDescriptionCount   = static_cast<uint32_t>(bindingDescriptions.size());
-		inputState.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
-
+        inputState.pVertexBindingDescriptions = bindingDescriptions.data();
+        inputState.pVertexAttributeDescriptions = attributeDescriptions.data();
+        inputState.vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescriptions.size());
+        inputState.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
 
 		// we do not need vertex input in plant pipeline.
-		pipelineCreateInfo.pVertexInputState = nullptr;
+		pipelineCreateInfo.pVertexInputState = &inputState;
 
 		// Indirect (and instanced) pipeline for the plants
 		shaderStages[0] = loadShader(getShadersPath() + "noodlebatch/noodlebatch.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
 		shaderStages[1] = loadShader(getShadersPath() + "noodlebatch/noodlebatch.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 		VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineCreateInfo, nullptr, &pipelines.plants));
+
+        // Vertex input bindings
+        // The instancing pipeline uses a vertex input state with two bindings
+        bindingDescriptions = {
+            // Binding point 0: Mesh vertex layout description at per-vertex rate
+            vks::initializers::vertexInputBindingDescription(VERTEX_BUFFER_BIND_ID, sizeof(vkglTF::Vertex), VK_VERTEX_INPUT_RATE_VERTEX),
+        };
+
+        // Vertex attribute bindings
+        // Note that the shader declaration for per-vertex and per-instance attributes is the same, the different input rates are only stored in the bindings:
+        // instanced.vert:
+        //	layout (location = 0) in vec3 inPos;		Per-Vertex
+        //	...
+        //	layout (location = 4) in vec3 instancePos;	Per-Instance
+        attributeDescriptions = {
+            // Per-vertex attributes
+            // These are advanced for each vertex fetched by the vertex shader
+            vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID, 0, VK_FORMAT_R32G32B32_SFLOAT, 0),								// Location 0: Position
+            vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID, 1, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 3),				// Location 1: Normal
+            vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID, 2, VK_FORMAT_R32G32_SFLOAT, sizeof(float) * 6),					// Location 2: Texture coordinates
+            vks::initializers::vertexInputAttributeDescription(VERTEX_BUFFER_BIND_ID, 3, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 8),				// Location 3: Color
+        };
+        inputState.pVertexBindingDescriptions = bindingDescriptions.data();
+        inputState.pVertexAttributeDescriptions = attributeDescriptions.data();
+        inputState.vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescriptions.size());
+        inputState.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
 
         pipelineCreateInfo.pVertexInputState = &inputState;
 		// Only use non-instanced vertex attributes for models rendered without instancing
@@ -444,33 +485,14 @@ public:
 	{
 		indirectCommands.clear();
 
-		// Create on indirect command for node in the scene with a mesh attached to it
-		uint32_t m = 0;
-		for (auto &node : models.plants.nodes)
-		{
-			if (node->mesh)
-			{
-				VkDrawIndexedIndirectCommand indirectCmd{};
-				indirectCmd.instanceCount = OBJECT_INSTANCE_COUNT;
-				indirectCmd.firstInstance = m * OBJECT_INSTANCE_COUNT;
-				// @todo: Multiple primitives
-				// A glTF node may consist of multiple primitives, so we may have to do multiple commands per mesh
-				indirectCmd.firstIndex = node->mesh->primitives[0]->firstIndex;
-				indirectCmd.indexCount = node->mesh->primitives[0]->indexCount;
-
-				indirectCommands.push_back(indirectCmd);
-
-				m++;
-			}
-		}
+        VkDrawIndexedIndirectCommand indirectCmd{};
+        indirectCmd.instanceCount = clusterCount;
+        indirectCmd.firstInstance = 0;
+        indirectCmd.firstIndex = 0;
+        indirectCmd.indexCount = CLUSTER_TRIANGLE_NUM * 3;
+        indirectCommands.push_back(indirectCmd);
 
 		indirectDrawCount = static_cast<uint32_t>(indirectCommands.size());
-
-		objectCount = 0;
-		for (auto indirectCmd : indirectCommands)
-		{
-			objectCount += indirectCmd.instanceCount;
-		}
 
 		vks::Buffer stagingBuffer;
 		VK_CHECK_RESULT(vulkanDevice->createBuffer(
@@ -491,6 +513,49 @@ public:
 		stagingBuffer.destroy();
 	}
 
+
+	void prepareIndexData()
+    {
+        vks::Buffer stagingBuffer;
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &stagingBuffer,
+            models.plants.cpuIndices.size() * sizeof(uint32_t),
+            models.plants.cpuIndices.data()));
+
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            &indexStorageBuffer,
+            stagingBuffer.size));
+
+        vulkanDevice->copyBuffer(&stagingBuffer, &indexStorageBuffer, queue);
+        stagingBuffer.destroy();
+
+        // create fixedIndexBuffer
+        std::vector<uint32_t> fixedIndices;
+        fixedIndices.resize(CLUSTER_TRIANGLE_NUM * 3);
+        for ( int i = 0; i < CLUSTER_TRIANGLE_NUM * 3; i++ )
+        {
+            fixedIndices[i] = i;
+        }
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &stagingBuffer,
+            fixedIndices.size() * sizeof(uint32_t),
+            fixedIndices.data()));
+
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            &fixedIndexBuffer,
+            stagingBuffer.size));
+
+        vulkanDevice->copyBuffer(&stagingBuffer, &fixedIndexBuffer, queue);
+        stagingBuffer.destroy();
+	}
 
     void prepareVertexData()
     {
@@ -523,9 +588,70 @@ public:
         stagingBuffer.destroy();
     }
 
+	void prepareClusterData()
+	{
+		std::vector<ClusterDesc> descDatas;
+
+		uint32_t descCount = 0;
+		const uint32_t triangleIndexNum = 3;
+		for ( int i = 0; i < models.plants.nodes.size(); i++ )
+        {
+			const vkglTF::Node* node = models.plants.nodes[i];
+			descCount += node->mesh->primitives[0]->indexCount / triangleIndexNum / CLUSTER_TRIANGLE_NUM * OBJECT_INSTANCE_COUNT;
+		}
+		descDatas.resize(descCount);
+        clusterCount = descCount;
+
+        uint32_t descIndex = 0;
+        uint32_t instanceIndex = 0;
+        for ( uint32_t i = 0; i < models.plants.nodes.size(); i++ )
+        {
+            const vkglTF::Node* node = models.plants.nodes[i];
+			const uint32_t firstIndex = node->mesh->primitives[0]->firstIndex;
+			const uint32_t clusterNum = node->mesh->primitives[0]->indexCount / triangleIndexNum / CLUSTER_TRIANGLE_NUM;
+			for ( uint32_t j = 0; j < OBJECT_INSTANCE_COUNT; j++ )
+			{
+				for ( uint32_t clusterIndex = 0; clusterIndex < clusterNum; clusterIndex++ )
+                {
+					descDatas[descIndex].indexOffset = firstIndex + clusterIndex * CLUSTER_TRIANGLE_NUM * triangleIndexNum;
+					descDatas[descIndex].instanceOffset = instanceIndex;
+					descIndex++;
+				}// for cluster
+
+				instanceIndex++;
+			}// for instace
+        }// for meshes
+
+        vks::Buffer stagingBuffer;
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &stagingBuffer,
+			descDatas.size() * sizeof(ClusterDesc),
+			descDatas.data()));
+
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            &clusterBuffer,
+            stagingBuffer.size));
+
+        vulkanDevice->copyBuffer(&stagingBuffer, &clusterBuffer, queue);
+        stagingBuffer.destroy();
+	}
+
     // Prepare (and stage) a buffer containing instanced data for the mesh draws
     void prepareInstanceData()
     {
+        objectCount = 0;
+        for ( auto& node : models.plants.nodes )
+        {
+            if ( node->mesh )
+            {
+                objectCount += OBJECT_INSTANCE_COUNT;
+            }
+        }
+
         std::vector<InstanceData> instanceData;
 		std::vector<InstanceTexIndexData> instanceTexIndexData;
         instanceData.resize(objectCount);
@@ -627,7 +753,9 @@ public:
 		VulkanExampleBase::prepare();
         loadAssets();
         setupQueryPool();
-		prepareIndirectData();
+        prepareClusterData();
+        prepareIndirectData();
+		prepareIndexData();
 		prepareVertexData();
 		prepareInstanceData();
 		prepareUniformBuffers();
@@ -664,8 +792,10 @@ public:
 				overlay->text("multiDrawIndirect not supported");
 			}
 		}
-		if (overlay->header("Statistics")) {
-			overlay->text("Objects: %d", objectCount);
+        if ( overlay->header("Statistics") )
+        {
+            overlay->text("Clusters: %d", clusterCount);
+            overlay->text("Objects: %d", objectCount);
 		}
 
         if ( !pipelineStats.empty() )

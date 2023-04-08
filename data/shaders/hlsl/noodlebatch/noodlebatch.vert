@@ -1,4 +1,9 @@
 // Copyright 2020 Google LLC
+struct VSInput
+{
+	[[vk::binding(0)]] uint indexOffset;
+	[[vk::binding(1)]] uint instanceOffset;
+};
 
 struct UBO
 {
@@ -6,6 +11,7 @@ struct UBO
 	float4x4 modelview;
 };
 
+ 
 struct Instance
 {
 	float3 pos;
@@ -40,23 +46,26 @@ struct VSOutput
 StructuredBuffer<Instance> instances : register(t3);
 StructuredBuffer<int> instanceTexIndices : register(t4);
 StructuredBuffer<VertexData> vertexDatas : register(t5);
+StructuredBuffer<uint> indexDatas : register(t6);
 
-VSOutput main(uint InstanceIndex : SV_InstanceID, uint VertexIndex : SV_VertexID)
+VSOutput main(VSInput input, uint VertexIndex : SV_VertexID)
 {
-	float3 instancePos = instances[InstanceIndex].pos.xyz;
-	float3 instanceRot = instances[InstanceIndex].rot;
-	float instanceScale = instances[InstanceIndex].scale;
-	int instanceTexIndex = instanceTexIndices[InstanceIndex];
+	uint vertexIndex = indexDatas[input.indexOffset + VertexIndex];
+	uint instanceIndex = input.instanceOffset;
 
-	float4 inputPos = vertexDatas[VertexIndex].pos;
-	float3 inputNormal = vertexDatas[VertexIndex].normal;
-	float2 inputUV = vertexDatas[VertexIndex].uv;
-	float3 inputColor = vertexDatas[VertexIndex].color;
+	float4 inputPos = vertexDatas[vertexIndex].pos;
+	float3 inputNormal = vertexDatas[vertexIndex].normal;
+	float2 inputUV = vertexDatas[vertexIndex].uv;
+	float3 inputColor = vertexDatas[vertexIndex].color;
+
+	float3 instancePos = instances[instanceIndex].pos.xyz;
+	float3 instanceRot = instances[instanceIndex].rot;
+	float instanceScale = instances[instanceIndex].scale;
+	int instanceTexIndex = instanceTexIndices[instanceIndex];
 
 	VSOutput output = (VSOutput)0;
 	output.Color = inputColor;
 	output.UV = float3(inputUV, instanceTexIndex);
-
 
 	float4x4 mx, my, mz;
 

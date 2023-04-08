@@ -1,10 +1,8 @@
 #version 450
 
-// Vertex attributes
-// layout (location = 0) in vec3 inPos;
-// layout (location = 1) in vec3 inNormal;
-// layout (location = 2) in vec2 inUV;
-// layout (location = 3) in vec3 inColor;
+// Instanced attributes
+layout (location = 0) in uint indexOffset;
+layout (location = 1) in uint instanceOffset;
 
 layout (binding = 0) uniform UBO 
 {
@@ -47,6 +45,11 @@ layout (binding = 5) buffer VertexDatas
    VertexData vertexDatas[ ];
 };
 
+layout (binding = 6) buffer IndexDatas
+{
+	uint indexDatas[];
+};
+
 layout (location = 0) out vec3 outNormal;
 layout (location = 1) out vec3 outColor;
 layout (location = 2) out vec3 outUV;
@@ -55,16 +58,19 @@ layout (location = 4) out vec3 outLightVec;
 
 void main() 
 {
-	vec3 instancePos = instances[gl_InstanceIndex].pos;
-	vec3 instanceRot = instances[gl_InstanceIndex].rot;
-	float instanceScale = instances[gl_InstanceIndex].scale;
-	int instanceTexIndex = instanceTexIndices[gl_InstanceIndex];
-	
-	vec3 inPos = vertexDatas[gl_VertexIndex].pos.xyz;
-	vec3 inNormal = vertexDatas[gl_VertexIndex].normal;
-	vec2 inUV = vertexDatas[gl_VertexIndex].uv;
-	vec3 inColor = vertexDatas[gl_VertexIndex].color;
+	uint vertexIndex = indexDatas[indexOffset + gl_VertexIndex];
+	uint instanceIndex = instanceOffset;
 
+	vec3 inPos = vertexDatas[vertexIndex].pos.xyz;
+	vec3 inNormal = vertexDatas[vertexIndex].normal;
+	vec2 inUV = vertexDatas[vertexIndex].uv;
+	vec3 inColor = vertexDatas[vertexIndex].color;
+
+	vec3 instancePos = instances[instanceIndex].pos;
+	vec3 instanceRot = instances[instanceIndex].rot;
+	float instanceScale = instances[instanceIndex].scale;
+	int instanceTexIndex = instanceTexIndices[instanceIndex];
+	
 	outColor = inColor;
 	outUV = vec3(inUV, instanceTexIndex);
 
