@@ -31,7 +31,7 @@ def compile_language(proj, language):
 
         for file in files:
             _, ext = os.path.splitext(file)
-            if ext == ".frag" or ext == ".vert":
+            if ext == ".frag" or ext == ".vert" or ext == ".comp":
                 # print("compiling {path}/{path}".format(glslc=GLSLC, file=file, path=path))
                 # command = "{glslc} -x {lang} {path}/{file} -o {path}/{file}.spv".format(glslc=GLSLC, lang=language, file=file, path=path)
                 command = "{glslc} -x {lang} {path}/{file} -o {path}/{file}.spv".format(glslc=GLSLC, lang=language, file=file, path=path)
