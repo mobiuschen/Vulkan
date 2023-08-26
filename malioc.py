@@ -9,6 +9,8 @@ from datetime import datetime
 
 VULKAN_SDK = os.getenv('VULKAN_SDK')
 GLSLC = VULKAN_SDK + "/bin/glslc"
+MALIOC = "malioc.exe"
+GPU = "Mali-G72"
 HLSL_DIR = "./data/shaders/hlsl"
 GLSL_DIR = "./data/shaders/glsl"
 
@@ -31,12 +33,15 @@ def compile_language(proj, language):
 
         for file in files:
             _, ext = os.path.splitext(file)
+            
             if ext == ".frag" or ext == ".vert" or ext == ".comp" \
                 or ext == ".geom" or ext == ".tesc" or ext == ".tese"\
                 or ext == ".rgen" or ext == ".rchit" or ext == ".rmiss":
                 # print("compiling {path}/{path}".format(glslc=GLSLC, file=file, path=path))
-                # command = "{glslc} -x {lang} {path}/{file} -o {path}/{file}.spv".format(glslc=GLSLC, lang=language, file=file, path=path)
-                command = "{glslc} -x {lang} -g {path}/{file} -O0 --target-env=vulkan1.2 --target-spv=spv1.4 -o {path}/{file}.spv".format(glslc=GLSLC, lang=language, file=file, path=path)
+                # malioc --vulkan -c Mali-G72 --spirv -n main hlsl\triangle\triangle.vert.spv -o triangle.o
+                input = os.path.abspath("{path}/{file}.spv".format(path=path, file=file))
+                output = os.path.abspath("{path}/{file}.mali".format(path=path, file=file))
+                command = "{malioc} --vulkan -c {gpu} --spirv -n main {input} -o {output}".format(malioc=MALIOC, gpu=GPU, input=input, output=output)
                 print(command)
                 os.system(command)
 
